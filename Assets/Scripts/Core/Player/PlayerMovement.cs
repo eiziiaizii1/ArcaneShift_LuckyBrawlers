@@ -1,7 +1,5 @@
-using System;
 using Unity.Netcode;
 using UnityEngine;
-using UnityEngine.XR;
 
 public class PlayerMovement : NetworkBehaviour
 {

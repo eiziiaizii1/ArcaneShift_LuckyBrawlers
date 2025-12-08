@@ -76,7 +76,7 @@ public class ProjectileLauncher : NetworkBehaviour
 
     private void SpawnDummyProjectile(Vector3 spawnPos, Vector3 direction)
     {
-        // 1. visual Logic (Muzzle Flash) is handled HERE so it works for everyone [cite: 33, 37]
+        // 1. visual Logic (Muzzle Flash) is handled HERE so it works for everyone
         muzzleFlash.SetActive(true);
         muzzleFlashTimer = muzzleFlashDuration;
 
@@ -85,7 +85,7 @@ public class ProjectileLauncher : NetworkBehaviour
             Instantiate(clientProjectilePrefab, spawnPos, Quaternion.identity);
         projectileInstance.transform.up = direction;
 
-        // 3. Physics Ignore (Client side) [cite: 52]
+        // 3. Physics Ignore (Client side)
         Physics2D.IgnoreCollision(playerCollider, projectileInstance.GetComponent<Collider2D>());
 
         if (projectileInstance.TryGetComponent<Rigidbody2D>(out Rigidbody2D rb))
