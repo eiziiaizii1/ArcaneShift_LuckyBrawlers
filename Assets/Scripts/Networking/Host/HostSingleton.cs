@@ -3,7 +3,7 @@ using UnityEngine;
 public class HostSingleton : MonoBehaviour
 {
     private static HostSingleton instance;
-    private HostGameManager gameManager;
+    public HostGameManager GameManager { get; private set; }
 
     public static HostSingleton Instance
     {
@@ -28,7 +28,7 @@ public class HostSingleton : MonoBehaviour
 
     public void CreateHost()
     {
-        gameManager = new HostGameManager();
+        GameManager = new HostGameManager();
         // No async init needed for host right now
     }
 }

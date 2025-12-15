@@ -9,7 +9,10 @@ EditorBuildSettings:
     path: Assets/Scenes/NetBootstrap.unity
     guid: 230adb517bc5b6744b451244c677f627
   - enabled: 1
-    path: Assets/Scenes/SampleScene.unity
+    path: Assets/Scenes/Menu.unity
+    guid: 3a3ef14340cabf34f8038617eab416ab
+  - enabled: 1
+    path: Assets/Scenes/Game.unity
     guid: 8c9cfa26abfee488c85f1582747f6a02
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 7049beff6ff8dcc4aa1ae46cc016a675, type: 3}

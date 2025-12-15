@@ -15,7 +15,6 @@ public class ApplicationController : MonoBehaviour
 
         await LaunchInMode(isDedicatedServer);
 
-        // will do this later
     }
 
     private async Task LaunchInMode(bool isDedicatedServer)
@@ -26,13 +25,13 @@ public class ApplicationController : MonoBehaviour
         }
         else
         {
-            // Spawn and initialize client
-            ClientSingleton clientSingleton = Instantiate(clientPrefab);
-            bool authenticated = await clientSingleton.CreateClient();
-
             // Spawn host
             HostSingleton hostSingleton = Instantiate(hostPrefab);
             hostSingleton.CreateHost();
+
+            // Spawn and initialize client
+            ClientSingleton clientSingleton = Instantiate(clientPrefab);
+            bool authenticated = await clientSingleton.CreateClient();
 
             if (authenticated)
             {
