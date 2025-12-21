@@ -12,50 +12,90 @@ public class MainMenuUI : MonoBehaviour
 
     private void Start()
     {
+        // Register button listeners
         createGameButton.onClick.AddListener(OnCreateGameClicked);
         joinGameButton.onClick.AddListener(OnJoinGameClicked);
+        
         Debug.Log("[MainMenuUI] Button listeners registered.");
+        
+        // Display welcome message with player name
+        string playerName = PlayerPrefs.GetString(BootstrapUI.PlayerNameKey, "Wizard");
+        statusText.text = $"Welcome, {playerName}!";
     }
 
     private async void OnCreateGameClicked()
     {
-        Debug.Log("[MainMenuUI] Create Game clicked.");
-        statusText.text = "Creating Relay...";
-        string code = await RelayManager.Instance.CreateRelay();
+        Debug.Log("[MainMenuUI] Create Game button clicked.");
+        
+        // Disable button to prevent double-clicks
+        createGameButton.interactable = false;
+        statusText.text = "Creating Relay allocation...";
 
-        if (!string.IsNullOrEmpty(code))
+        // Create the relay and get the join code
+        string joinCode = await RelayManager.Instance.CreateRelay();
+
+        if (!string.IsNullOrEmpty(joinCode))
         {
-            statusText.text = $"Host Started! Code: {code}";
-            // Copy code to clipboard for easy testing
-            GUIUtility.systemCopyBuffer = code;
-            Debug.Log($"Join Code Copied: {code}");
+            // Success! Display the code and copy to clipboard
+            statusText.text = $"Host Started!\nJoin Code: {joinCode}";
+            GUIUtility.systemCopyBuffer = joinCode;
+            
+            Debug.Log($"[MainMenuUI] Host created successfully. Join code copied to clipboard: {joinCode}");
+            
+            // Note: RelayManager.CreateRelay() already loads GameScene
+            // So we don't need to do anything else here
         }
         else
         {
-            statusText.text = "Host failed to start.";
+            // Failed to create relay
+            statusText.text = "Failed to start host. Check console.";
+            createGameButton.interactable = true; // Re-enable button for retry
+            Debug.LogError("[MainMenuUI] Failed to create relay.");
         }
     }
 
     private async void OnJoinGameClicked()
     {
-        string code = joinCodeInput.text;
-        if (string.IsNullOrEmpty(code))
+        string joinCode = joinCodeInput.text.Trim();
+        
+        // Validate join code
+        if (string.IsNullOrEmpty(joinCode))
         {
-            Debug.LogWarning("[MainMenuUI] Join code missing.");
+            statusText.text = "Please enter a join code.";
+            Debug.LogWarning("[MainMenuUI] Join attempted with empty code.");
             return;
         }
 
-        Debug.Log($"[MainMenuUI] Join Game clicked. Code: {code}");
-        statusText.text = "Joining Relay...";
-        bool success = await RelayManager.Instance.JoinRelay(code);
+        Debug.Log($"[MainMenuUI] Join Game button clicked. Code: {joinCode}");
+        
+        // Disable button to prevent double-clicks
+        joinGameButton.interactable = false;
+        statusText.text = "Joining relay...";
+
+        // Attempt to join the relay
+        bool success = await RelayManager.Instance.JoinRelay(joinCode);
 
         if (success)
         {
-            statusText.text = "Joined!";
+            statusText.text = "Joined! Waiting for host...";
+            Debug.Log("[MainMenuUI] Successfully joined relay. Awaiting scene sync from host.");
+            
+            // Note: Client will automatically be synced to GameScene by the host
+            // No need to manually load scenes here
         }
         else
         {
-            statusText.text = "Join Failed.";
+            // Failed to join
+            statusText.text = "Failed to join. Check code.";
+            joinGameButton.interactable = true; // Re-enable button for retry
+            Debug.LogError("[MainMenuUI] Failed to join relay.");
         }
+    }
+
+    private void OnDestroy()
+    {
+        // Clean up listeners
+        createGameButton.onClick.RemoveListener(OnCreateGameClicked);
+        joinGameButton.onClick.RemoveListener(OnJoinGameClicked);
     }
 }

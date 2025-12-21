@@ -57,7 +57,6 @@ public class BootstrapUI : MonoBehaviour
         Debug.Log($"[BootstrapUI] Saved player name: {cleanName}");
 
         // Transition to the main Networking/Menu scene
-        // Make sure your next scene is added to Build Settings!
         Debug.Log("[BootstrapUI] Loading MainMenu scene.");
         SceneManager.LoadScene("MainMenu"); 
     }

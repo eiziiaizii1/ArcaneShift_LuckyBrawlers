@@ -49,7 +49,7 @@ public class RelayManager : MonoBehaviour
     private byte[] GetConnectionPayload()
     {
         // 1) Name from PlayerPrefs (Quest 5)
-        string playerName = PlayerPrefs.GetString("PlayerName", "Unknown Wizard");
+        string playerName = PlayerPrefs.GetString(BootstrapUI.PlayerNameKey, "Unknown Wizard");
 
         // 2) Unique Auth ID from Unity Services
         string authId = AuthenticationService.Instance.PlayerId;
@@ -76,38 +76,39 @@ public class RelayManager : MonoBehaviour
         try
         {
             Debug.Log($"[RelayManager] Creating relay allocation (maxConnections: {maxConnections})...");
-            // 1. Create Allocation & Get Join Code (Same as before)
+            
+            // 1. Create Allocation & Get Join Code
             Allocation allocation = await RelayService.Instance.CreateAllocationAsync(maxConnections);
             string joinCode = await RelayService.Instance.GetJoinCodeAsync(allocation.AllocationId);
             Debug.Log($"[RelayManager] Relay allocation created. Join code: {joinCode}");
 
-            // 2. Configure Transport (Same as before)
+            // 2. Configure Transport with DTLS
             RelayServerData relayServerData = new RelayServerData(allocation, "dtls");
             NetworkManager.Singleton.GetComponent<UnityTransport>().SetRelayServerData(relayServerData);
 
-            // 3. Inject Payload (Quest 6 - Same as before)
+            // 3. Inject Payload (Quest 6 - Must be set BEFORE StartHost)
             NetworkManager.Singleton.NetworkConfig.ConnectionData = GetConnectionPayload();
 
             // 4. Start Host
             if (NetworkManager.Singleton.StartHost())
             {
-                // --- THE FIX IS HERE ---
-                // The Host tells the server to load the GameScene.
-                // Netcode automatically syncs all connecting clients to this scene.
+                // FIXED: Load the actual game scene (GameScene) where gameplay happens
+                // This is separate from MainMenu which is the lobby/menu scene
+                // Netcode automatically syncs all connecting clients to this scene
                 NetworkManager.Singleton.SceneManager.LoadScene("GameScene", LoadSceneMode.Single);
                 
-                Debug.Log($"[RelayManager] Host started. Loading GameScene... Code: {joinCode}");
+                Debug.Log($"[RelayManager] Host started successfully. Loading GameScene. Join Code: {joinCode}");
                 return joinCode;
             }
             else
             {
-                Debug.LogError("[RelayManager] Host failed to start.");
+                Debug.LogError("[RelayManager] Failed to start host.");
                 return null;
             }
         }
         catch (RelayServiceException e)
         {
-            Debug.LogError($"[RelayManager] Relay Create Error: {e.Message}");
+            Debug.LogError($"[RelayManager] Relay creation failed: {e.Message}");
             return null;
         }
     }
@@ -119,26 +120,34 @@ public class RelayManager : MonoBehaviour
     {
         try
         {
-            Debug.Log($"[RelayManager] Joining relay with code: {joinCode}");
-            // Join the allocation using the code
+            Debug.Log($"[RelayManager] Attempting to join relay with code: {joinCode}");
+            
+            // 1. Join the allocation using the code
             JoinAllocation joinAllocation = await RelayService.Instance.JoinAllocationAsync(joinCode);
+            Debug.Log("[RelayManager] Join allocation successful.");
 
-            // NEW: Inject payload before starting client
+            // 2. Inject payload (Quest 6 - Must be set BEFORE StartClient)
             NetworkManager.Singleton.NetworkConfig.ConnectionData = GetConnectionPayload();
 
-            // Configure transport (dtls must match host)
+            // 3. Configure transport with DTLS (must match host)
             RelayServerData relayServerData = new RelayServerData(joinAllocation, "dtls");
             NetworkManager.Singleton.GetComponent<UnityTransport>().SetRelayServerData(relayServerData);
 
-            // Start Client
-            NetworkManager.Singleton.StartClient();
-            Debug.Log("[RelayManager] Client start requested.");
-
-            return true;
+            // 4. Start Client
+            if (NetworkManager.Singleton.StartClient())
+            {
+                Debug.Log("[RelayManager] Client started successfully. Awaiting scene sync from host.");
+                return true;
+            }
+            else
+            {
+                Debug.LogError("[RelayManager] Failed to start client.");
+                return false;
+            }
         }
         catch (RelayServiceException e)
         {
-            Debug.LogError($"[RelayManager] Relay Join Error: {e.Message}");
+            Debug.LogError($"[RelayManager] Relay join failed: {e.Message}");
             return false;
         }
     }

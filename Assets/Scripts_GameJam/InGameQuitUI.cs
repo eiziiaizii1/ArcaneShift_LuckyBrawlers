@@ -8,28 +8,68 @@ public class InGameQuitUI : MonoBehaviour
 
     private void Start()
     {
-        leaveButton.onClick.AddListener(OnLeaveClicked);
-        Debug.Log("[InGameQuitUI] Leave button listener registered.");
+        if (leaveButton != null)
+        {
+            leaveButton.onClick.AddListener(OnLeaveClicked);
+            Debug.Log("[InGameQuitUI] Leave button listener registered.");
+        }
+        else
+        {
+            Debug.LogError("[InGameQuitUI] Leave button is not assigned in inspector!");
+        }
     }
 
     private void OnLeaveClicked()
     {
-        Debug.Log("[InGameQuitUI] Leave clicked. Attempting clean shutdown.");
-        // Find the manager and trigger the clean shutdown
-        // Note: GameConnectionManager is on the NetworkManager object
-        var connectionManager = NetworkManager.Singleton.GetComponent<GameConnectionManager>();
+        Debug.Log("[InGameQuitUI] Leave button clicked. Initiating clean shutdown.");
         
-        if (connectionManager != null)
+        // Find the GameConnectionManager component on the NetworkManager
+        if (NetworkManager.Singleton != null)
         {
-            Debug.Log("[InGameQuitUI] GameConnectionManager found. Calling QuitGame().");
-            connectionManager.QuitGame();
+            GameConnectionManager connectionManager = NetworkManager.Singleton.GetComponent<GameConnectionManager>();
+            
+            if (connectionManager != null)
+            {
+                Debug.Log("[InGameQuitUI] GameConnectionManager found. Calling QuitGame().");
+                connectionManager.QuitGame();
+            }
+            else
+            {
+                // Fallback if GameConnectionManager is missing
+                Debug.LogWarning("[InGameQuitUI] GameConnectionManager component not found on NetworkManager. Using fallback shutdown.");
+                FallbackShutdown();
+            }
         }
         else
         {
-            // Fallback if something is wrong
-            Debug.LogWarning("[InGameQuitUI] GameConnectionManager missing. Falling back to NetworkManager shutdown.");
+            Debug.LogError("[InGameQuitUI] NetworkManager.Singleton is null. Cannot quit properly.");
+            // Last resort fallback
+            FallbackShutdown();
+        }
+    }
+
+    /// <summary>
+    /// Fallback shutdown method if GameConnectionManager is not available.
+    /// This is less clean but ensures the player can still exit.
+    /// </summary>
+    private void FallbackShutdown()
+    {
+        Debug.Log("[InGameQuitUI] Executing fallback shutdown sequence.");
+        
+        if (NetworkManager.Singleton != null)
+        {
             NetworkManager.Singleton.Shutdown();
-            UnityEngine.SceneManagement.SceneManager.LoadScene("MainMenu");
+        }
+        
+        UnityEngine.SceneManagement.SceneManager.LoadScene("MainMenu");
+    }
+
+    private void OnDestroy()
+    {
+        // Clean up listener
+        if (leaveButton != null)
+        {
+            leaveButton.onClick.RemoveListener(OnLeaveClicked);
         }
     }
 }
