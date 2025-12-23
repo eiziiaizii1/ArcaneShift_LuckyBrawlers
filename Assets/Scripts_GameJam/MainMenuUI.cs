@@ -15,41 +15,80 @@ public class MainMenuUI : MonoBehaviour
         // Register button listeners
         createGameButton.onClick.AddListener(OnCreateGameClicked);
         joinGameButton.onClick.AddListener(OnJoinGameClicked);
-        
         Debug.Log("[MainMenuUI] Button listeners registered.");
-        
-        // Display welcome message with player name
+
+        // Default disabled until Unity Services/Auth ready
+        createGameButton.interactable = false;
+        joinGameButton.interactable = false;
+        statusText.text = "Connecting to Unity Services...";
+
+        // Handle scene reloads + timing: if already ready, enable immediately; otherwise wait for event
+        if (RelayManager.Instance != null && RelayManager.Instance.IsRelayReady)
+        {
+            EnableMenuInteractions();
+        }
+        else if (RelayManager.Instance != null)
+        {
+            RelayManager.Instance.OnRelayReady += EnableMenuInteractions;
+        }
+        else
+        {
+            // RelayManager missing in scene (helpful log)
+            statusText.text = "RelayManager not found. Check scene setup.";
+            Debug.LogError("[MainMenuUI] RelayManager.Instance is null. Ensure RelayManager exists in the scene.");
+        }
+    }
+
+    private void EnableMenuInteractions()
+    {
+        // Defensive: if object is being destroyed, ignore
+        if (!this) return;
+
+        createGameButton.interactable = true;
+        joinGameButton.interactable = true;
+
         string playerName = PlayerPrefs.GetString(BootstrapUI.PlayerNameKey, "Wizard");
         statusText.text = $"Welcome, {playerName}!";
+        Debug.Log("[MainMenuUI] Unity Services Ready. Buttons enabled.");
+
+        // Unsubscribe after first fire (prevents duplicate calls if event fired again)
+        if (RelayManager.Instance != null)
+            RelayManager.Instance.OnRelayReady -= EnableMenuInteractions;
     }
 
     private async void OnCreateGameClicked()
     {
         Debug.Log("[MainMenuUI] Create Game button clicked.");
-        
-        // Disable button to prevent double-clicks
+
+        // Prevent double-clicks
         createGameButton.interactable = false;
+        joinGameButton.interactable = false;
         statusText.text = "Creating Relay allocation...";
 
-        // Create the relay and get the join code
+        if (RelayManager.Instance == null)
+        {
+            statusText.text = "RelayManager not found. Check console.";
+            Debug.LogError("[MainMenuUI] RelayManager.Instance is null.");
+            createGameButton.interactable = true;
+            joinGameButton.interactable = true;
+            return;
+        }
+
         string joinCode = await RelayManager.Instance.CreateRelay();
 
         if (!string.IsNullOrEmpty(joinCode))
         {
-            // Success! Display the code and copy to clipboard
             statusText.text = $"Host Started!\nJoin Code: {joinCode}";
             GUIUtility.systemCopyBuffer = joinCode;
-            
             Debug.Log($"[MainMenuUI] Host created successfully. Join code copied to clipboard: {joinCode}");
-            
-            // Note: RelayManager.CreateRelay() already loads GameScene
-            // So we don't need to do anything else here
+
+            // Note: RelayManager.CreateRelay() loads GameScene already
         }
         else
         {
-            // Failed to create relay
             statusText.text = "Failed to start host. Check console.";
-            createGameButton.interactable = true; // Re-enable button for retry
+            createGameButton.interactable = true;
+            joinGameButton.interactable = true;
             Debug.LogError("[MainMenuUI] Failed to create relay.");
         }
     }
@@ -57,8 +96,7 @@ public class MainMenuUI : MonoBehaviour
     private async void OnJoinGameClicked()
     {
         string joinCode = joinCodeInput.text.Trim();
-        
-        // Validate join code
+
         if (string.IsNullOrEmpty(joinCode))
         {
             statusText.text = "Please enter a join code.";
@@ -67,27 +105,35 @@ public class MainMenuUI : MonoBehaviour
         }
 
         Debug.Log($"[MainMenuUI] Join Game button clicked. Code: {joinCode}");
-        
-        // Disable button to prevent double-clicks
+
+        // Prevent double-clicks
         joinGameButton.interactable = false;
+        createGameButton.interactable = false;
         statusText.text = "Joining relay...";
 
-        // Attempt to join the relay
+        if (RelayManager.Instance == null)
+        {
+            statusText.text = "RelayManager not found. Check console.";
+            Debug.LogError("[MainMenuUI] RelayManager.Instance is null.");
+            joinGameButton.interactable = true;
+            createGameButton.interactable = true;
+            return;
+        }
+
         bool success = await RelayManager.Instance.JoinRelay(joinCode);
 
         if (success)
         {
             statusText.text = "Joined! Waiting for host...";
             Debug.Log("[MainMenuUI] Successfully joined relay. Awaiting scene sync from host.");
-            
-            // Note: Client will automatically be synced to GameScene by the host
-            // No need to manually load scenes here
+
+            // Client will be synced to GameScene by host automatically
         }
         else
         {
-            // Failed to join
             statusText.text = "Failed to join. Check code.";
-            joinGameButton.interactable = true; // Re-enable button for retry
+            joinGameButton.interactable = true;
+            createGameButton.interactable = true;
             Debug.LogError("[MainMenuUI] Failed to join relay.");
         }
     }
@@ -95,7 +141,14 @@ public class MainMenuUI : MonoBehaviour
     private void OnDestroy()
     {
         // Clean up listeners
-        createGameButton.onClick.RemoveListener(OnCreateGameClicked);
-        joinGameButton.onClick.RemoveListener(OnJoinGameClicked);
+        if (createGameButton != null)
+            createGameButton.onClick.RemoveListener(OnCreateGameClicked);
+
+        if (joinGameButton != null)
+            joinGameButton.onClick.RemoveListener(OnJoinGameClicked);
+
+        // Clean up event subscription to prevent errors
+        if (RelayManager.Instance != null)
+            RelayManager.Instance.OnRelayReady -= EnableMenuInteractions;
     }
 }

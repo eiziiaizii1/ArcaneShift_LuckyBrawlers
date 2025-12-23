@@ -1,3 +1,4 @@
+using System;
 using System.Text;
 using System.Threading.Tasks;
 using Unity.Netcode;
@@ -14,6 +15,10 @@ public class RelayManager : MonoBehaviour
 {
     // Singleton for easy access
     public static RelayManager Instance { get; private set; }
+
+    // Event to notify UI when relay/services are ready
+    public event Action OnRelayReady;
+    public bool IsRelayReady { get; private set; } = false;
 
     private void Awake()
     {
@@ -43,6 +48,11 @@ public class RelayManager : MonoBehaviour
             await AuthenticationService.Instance.SignInAnonymouslyAsync();
             Debug.Log("[RelayManager] Signed in anonymously.");
         }
+
+        // Mark as ready and fire event
+        IsRelayReady = true;
+        OnRelayReady?.Invoke();
+        Debug.Log("[RelayManager] Ready for interactions.");
     }
 
     // HELPER: Construct the payload (Name + AuthID)
@@ -76,7 +86,7 @@ public class RelayManager : MonoBehaviour
         try
         {
             Debug.Log($"[RelayManager] Creating relay allocation (maxConnections: {maxConnections})...");
-            
+
             // 1. Create Allocation & Get Join Code
             Allocation allocation = await RelayService.Instance.CreateAllocationAsync(maxConnections);
             string joinCode = await RelayService.Instance.GetJoinCodeAsync(allocation.AllocationId);
@@ -86,25 +96,21 @@ public class RelayManager : MonoBehaviour
             RelayServerData relayServerData = new RelayServerData(allocation, "dtls");
             NetworkManager.Singleton.GetComponent<UnityTransport>().SetRelayServerData(relayServerData);
 
-            // 3. Inject Payload (Quest 6 - Must be set BEFORE StartHost)
+            // 3. Inject Payload (Must be set BEFORE StartHost)
             NetworkManager.Singleton.NetworkConfig.ConnectionData = GetConnectionPayload();
 
             // 4. Start Host
             if (NetworkManager.Singleton.StartHost())
             {
-                // FIXED: Load the actual game scene (GameScene) where gameplay happens
-                // This is separate from MainMenu which is the lobby/menu scene
-                // Netcode automatically syncs all connecting clients to this scene
+                // Load the actual game scene; clients will sync automatically
                 NetworkManager.Singleton.SceneManager.LoadScene("GameScene", LoadSceneMode.Single);
-                
+
                 Debug.Log($"[RelayManager] Host started successfully. Loading GameScene. Join Code: {joinCode}");
                 return joinCode;
             }
-            else
-            {
-                Debug.LogError("[RelayManager] Failed to start host.");
-                return null;
-            }
+
+            Debug.LogError("[RelayManager] Failed to start host.");
+            return null;
         }
         catch (RelayServiceException e)
         {
@@ -121,12 +127,12 @@ public class RelayManager : MonoBehaviour
         try
         {
             Debug.Log($"[RelayManager] Attempting to join relay with code: {joinCode}");
-            
+
             // 1. Join the allocation using the code
             JoinAllocation joinAllocation = await RelayService.Instance.JoinAllocationAsync(joinCode);
             Debug.Log("[RelayManager] Join allocation successful.");
 
-            // 2. Inject payload (Quest 6 - Must be set BEFORE StartClient)
+            // 2. Inject payload (Must be set BEFORE StartClient)
             NetworkManager.Singleton.NetworkConfig.ConnectionData = GetConnectionPayload();
 
             // 3. Configure transport with DTLS (must match host)
@@ -139,11 +145,9 @@ public class RelayManager : MonoBehaviour
                 Debug.Log("[RelayManager] Client started successfully. Awaiting scene sync from host.");
                 return true;
             }
-            else
-            {
-                Debug.LogError("[RelayManager] Failed to start client.");
-                return false;
-            }
+
+            Debug.LogError("[RelayManager] Failed to start client.");
+            return false;
         }
         catch (RelayServiceException e)
         {
