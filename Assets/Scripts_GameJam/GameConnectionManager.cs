@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading.Tasks;
 using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -13,7 +14,6 @@ public class GameConnectionManager : MonoBehaviour
     {
         if (NetworkManager.Singleton != null)
         {
-            // Subscribe to connection events
             NetworkManager.Singleton.ConnectionApprovalCallback += ApprovalCheck;
             NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnect;
             Debug.Log("[GameConnectionManager] Subscribed to connection approval and disconnect callbacks.");
@@ -27,33 +27,56 @@ public class GameConnectionManager : MonoBehaviour
     // --- QUEST 6: Gatekeeper Approval ---
     private void ApprovalCheck(NetworkManager.ConnectionApprovalRequest request, NetworkManager.ConnectionApprovalResponse response)
     {
-        // Deserialize the connection payload
-        byte[] payloadBytes = request.Payload;
-        string jsonPayload = Encoding.UTF8.GetString(payloadBytes);
-        UserData data = JsonUtility.FromJson<UserData>(jsonPayload);
-
-        Debug.Log($"[Gatekeeper] Connection approval request from: {data.userName} (ClientID: {request.ClientNetworkId}, AuthID: {data.userAuthId})");
-
-        // Store the client data for tracking
-        if (!clientDataMap.ContainsKey(request.ClientNetworkId))
+        try
         {
-            clientDataMap.Add(request.ClientNetworkId, data);
-            Debug.Log($"[Gatekeeper] Added {data.userName} to client tracking dictionary.");
-        }
-        else
-        {
-            Debug.LogWarning($"[Gatekeeper] ClientID {request.ClientNetworkId} already exists in dictionary. Updating data.");
-            clientDataMap[request.ClientNetworkId] = data;
-        }
+            byte[] payloadBytes = request.Payload;
+            
+            if (payloadBytes == null || payloadBytes.Length == 0)
+            {
+                Debug.LogWarning($"[Gatekeeper] Empty payload received from ClientID: {request.ClientNetworkId}");
+                response.Approved = false;
+                response.Reason = "Empty connection payload";
+                return;
+            }
 
-        // Approve the connection and create player object
-        response.Approved = true;
-        response.CreatePlayerObject = true;
-        
-        Debug.Log($"[Gatekeeper] Connection approved for {data.userName}.");
+            string jsonPayload = Encoding.UTF8.GetString(payloadBytes);
+            UserData data = JsonUtility.FromJson<UserData>(jsonPayload);
+
+            if (data == null || string.IsNullOrEmpty(data.userName))
+            {
+                Debug.LogWarning($"[Gatekeeper] Invalid user data from ClientID: {request.ClientNetworkId}");
+                response.Approved = false;
+                response.Reason = "Invalid user data";
+                return;
+            }
+
+            Debug.Log($"[Gatekeeper] Connection request from: {data.userName} (ClientID: {request.ClientNetworkId}, AuthID: {data.userAuthId})");
+
+            if (!clientDataMap.ContainsKey(request.ClientNetworkId))
+            {
+                clientDataMap.Add(request.ClientNetworkId, data);
+                Debug.Log($"[Gatekeeper] Added {data.userName} to client tracking dictionary.");
+            }
+            else
+            {
+                Debug.LogWarning($"[Gatekeeper] ClientID {request.ClientNetworkId} already exists. Updating data.");
+                clientDataMap[request.ClientNetworkId] = data;
+            }
+
+            response.Approved = true;
+            response.CreatePlayerObject = true;
+            
+            Debug.Log($"[Gatekeeper] Connection APPROVED for {data.userName}.");
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[Gatekeeper] Error during approval: {e.Message}");
+            response.Approved = false;
+            response.Reason = "Server error during approval";
+        }
     }
 
-    // --- QUEST 7: Presence & Departure - Disconnect Handling ---
+    // --- QUEST 7: Presence & Departure ---
     private void OnClientDisconnect(ulong clientId)
     {
         if (NetworkManager.Singleton.IsServer)
@@ -62,8 +85,17 @@ public class GameConnectionManager : MonoBehaviour
             if (clientDataMap.ContainsKey(clientId))
             {
                 string playerName = clientDataMap[clientId].userName;
-                Debug.Log($"[Gatekeeper] Player disconnected: {playerName} (ClientID: {clientId})");
+                string authId = clientDataMap[clientId].userAuthId;
+                Debug.Log($"[Gatekeeper] Player disconnected: {playerName} (ClientID: {clientId}, AuthID: {authId})");
+                
+                // Remove from tracking
                 clientDataMap.Remove(clientId);
+                
+                // Update lobby to remove this player
+                if (LobbyManager.Instance != null)
+                {
+                    LobbyManager.Instance.RemovePlayerFromLobby(authId);
+                }
             }
             else
             {
@@ -73,16 +105,12 @@ public class GameConnectionManager : MonoBehaviour
         else
         {
             // CLIENT: Host has disconnected or we lost connection
-            Debug.Log($"[Client] Detected host disconnect (ClientID: {clientId}). Starting shutdown sequence.");
+            Debug.Log($"[Client] Detected disconnect (ClientID: {clientId}). Starting shutdown sequence.");
             StartCoroutine(ShutdownSequence());
         }
     }
 
-    // --- QUEST 8: Shutdown Discipline - Clean Shutdown ---
-    
-    /// <summary>
-    /// Public method that can be called by UI buttons to quit the game cleanly.
-    /// </summary>
+    // --- QUEST 8: Shutdown Discipline ---
     public void QuitGame()
     {
         Debug.Log("[GameConnectionManager] QuitGame() called. Initiating shutdown sequence.");
@@ -93,12 +121,54 @@ public class GameConnectionManager : MonoBehaviour
     {
         Debug.Log("[GameConnectionManager] === Shutdown Sequence Started ===");
         
-        // Step 1: Delete Lobby (Quest 3 - To be implemented later)
-        // TODO: When lobby system is implemented, add:
-        // if (LobbyManager.Instance != null)
-        // {
-        //     await LobbyManager.Instance.DeleteLobby();
-        // }
+        // Step 1: Leave/Delete Lobby based on role
+        if (NetworkManager.Singleton != null && LobbyManager.Instance != null)
+        {
+            if (NetworkManager.Singleton.IsServer)
+            {
+                // Host: Delete the entire lobby
+                Debug.Log("[GameConnectionManager] Host shutting down - deleting lobby...");
+                Task deleteTask = LobbyManager.Instance.DeleteLobby();
+                
+                float timeoutCounter = 0f;
+                while (!deleteTask.IsCompleted && timeoutCounter < 5f)
+                {
+                    timeoutCounter += Time.deltaTime;
+                    yield return null;
+                }
+                
+                if (deleteTask.IsCompleted)
+                {
+                    Debug.Log("[GameConnectionManager] Lobby deleted successfully.");
+                }
+                else
+                {
+                    Debug.LogWarning("[GameConnectionManager] Lobby deletion timed out.");
+                }
+            }
+            else
+            {
+                // Client: Just leave the lobby
+                Debug.Log("[GameConnectionManager] Client shutting down - leaving lobby...");
+                Task leaveTask = LobbyManager.Instance.LeaveLobby();
+                
+                float timeoutCounter = 0f;
+                while (!leaveTask.IsCompleted && timeoutCounter < 5f)
+                {
+                    timeoutCounter += Time.deltaTime;
+                    yield return null;
+                }
+                
+                if (leaveTask.IsCompleted)
+                {
+                    Debug.Log("[GameConnectionManager] Left lobby successfully.");
+                }
+                else
+                {
+                    Debug.LogWarning("[GameConnectionManager] Leave lobby timed out.");
+                }
+            }
+        }
 
         // Step 2: Shut down NetworkManager
         if (NetworkManager.Singleton != null)
@@ -106,33 +176,26 @@ public class GameConnectionManager : MonoBehaviour
             Debug.Log("[GameConnectionManager] Shutting down NetworkManager...");
             NetworkManager.Singleton.Shutdown();
         }
-        else
-        {
-            Debug.LogWarning("[GameConnectionManager] NetworkManager.Singleton is null during shutdown.");
-        }
 
-        // Step 3: Wait a frame to ensure Netcode's internal cleanup completes
+        // Step 3: Wait for cleanup
         yield return null;
 
-        // Step 4: Destroy NetworkManager GameObject to prevent stale state bugs
-        // This is critical for Unity Editor testing where the GameObject persists between play sessions
+        // Step 4: Destroy NetworkManager GameObject
         if (NetworkManager.Singleton != null)
         {
-            Debug.Log("[GameConnectionManager] Destroying NetworkManager GameObject to prevent stale state.");
+            Debug.Log("[GameConnectionManager] Destroying NetworkManager GameObject.");
             Destroy(NetworkManager.Singleton.gameObject);
         }
 
-        // Step 5: Return to MainMenu scene (lobby/connection scene)
+        // Step 5: Return to MainMenu
         Debug.Log("[GameConnectionManager] Loading MainMenu scene.");
         SceneManager.LoadScene("MainMenu");
         
         Debug.Log("[GameConnectionManager] === Shutdown Sequence Complete ===");
     }
 
-    // --- QUEST 8: Cleanup on Destroy ---
     private void OnDestroy()
     {
-        // Unsubscribe from all callbacks to prevent memory leaks
         if (NetworkManager.Singleton != null)
         {
             NetworkManager.Singleton.ConnectionApprovalCallback -= ApprovalCheck;
@@ -141,20 +204,18 @@ public class GameConnectionManager : MonoBehaviour
         }
     }
 
-    // --- QUEST 8: Handle Application Quit (Additional Safety) ---
     private void OnApplicationQuit()
     {
-        // If we're the host and the application is closing, clean up the lobby
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer)
         {
-            Debug.Log("[GameConnectionManager] Application quitting on host. Lobby cleanup pending.");
-            // TODO: When lobby system is implemented, add:
-            // LobbyManager.Instance?.DeleteLobby();
-            // This prevents "ghost lobbies" from staying active on Unity Gaming Services
+            Debug.Log("[GameConnectionManager] Application quitting on host. Initiating lobby cleanup.");
+            if (LobbyManager.Instance != null)
+            {
+                _ = LobbyManager.Instance.DeleteLobby();
+            }
         }
     }
 
-    // --- DEBUG HELPER: View Connected Clients ---
     public void LogConnectedClients()
     {
         Debug.Log($"[GameConnectionManager] === Connected Clients ({clientDataMap.Count}) ===");

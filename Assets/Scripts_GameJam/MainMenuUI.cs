@@ -1,122 +1,251 @@
+using System.Collections.Generic;
 using TMPro;
+using Unity.Services.Lobbies.Models;
 using UnityEngine;
 using UnityEngine.UI;
 
 public class MainMenuUI : MonoBehaviour
 {
-    [Header("UI References")]
+    [Header("Main Buttons")]
     [SerializeField] private Button createGameButton;
+    [SerializeField] private Button refreshListButton;
     [SerializeField] private Button joinGameButton;
+
+    [Header("Input Fields")]
     [SerializeField] private TMP_InputField joinCodeInput;
+    [SerializeField] private TMP_InputField lobbyNameInput;
+
+    [Header("Lobby Browser")]
+    [SerializeField] private Transform lobbyListContainer;
+    [SerializeField] private GameObject lobbyItemPrefab;
+
+    [Header("Status")]
     [SerializeField] private TextMeshProUGUI statusText;
+
+    private bool isProcessing = false;
 
     private void Start()
     {
         // Register button listeners
-        createGameButton.onClick.AddListener(OnCreateGameClicked);
-        joinGameButton.onClick.AddListener(OnJoinGameClicked);
+        if (createGameButton != null) createGameButton.onClick.AddListener(OnCreateGameClicked);
+        if (refreshListButton != null) refreshListButton.onClick.AddListener(RefreshLobbyList);
+        if (joinGameButton != null) joinGameButton.onClick.AddListener(OnJoinGameClicked);
+
         Debug.Log("[MainMenuUI] Button listeners registered.");
 
-        // Default disabled until Unity Services/Auth ready
-        createGameButton.interactable = false;
-        joinGameButton.interactable = false;
+        // Initial state
+        SetInteractable(false);
         statusText.text = "Connecting to Unity Services...";
 
-        // Handle scene reloads + timing: if already ready, enable immediately; otherwise wait for event
-        if (RelayManager.Instance != null && RelayManager.Instance.IsRelayReady)
+        // Wait for services to be ready
+        if (RelayManager.Instance != null)
         {
-            EnableMenuInteractions();
-        }
-        else if (RelayManager.Instance != null)
-        {
-            RelayManager.Instance.OnRelayReady += EnableMenuInteractions;
+            if (RelayManager.Instance.IsRelayReady)
+            {
+                EnableMenuInteractions();
+            }
+            else
+            {
+                RelayManager.Instance.OnRelayReady += EnableMenuInteractions;
+            }
         }
         else
         {
-            // RelayManager missing in scene (helpful log)
-            statusText.text = "RelayManager not found. Check scene setup.";
-            Debug.LogError("[MainMenuUI] RelayManager.Instance is null. Ensure RelayManager exists in the scene.");
+            statusText.text = "ERROR: RelayManager not found!";
+            Debug.LogError("[MainMenuUI] RelayManager.Instance is null. Check scene setup.");
         }
+    }
+
+    private void SetInteractable(bool value)
+    {
+        if (createGameButton != null) createGameButton.interactable = value;
+        if (refreshListButton != null) refreshListButton.interactable = value;
+        if (joinGameButton != null) joinGameButton.interactable = value;
     }
 
     private void EnableMenuInteractions()
     {
-        // Defensive: if object is being destroyed, ignore
         if (!this) return;
 
-        createGameButton.interactable = true;
-        joinGameButton.interactable = true;
+        SetInteractable(true);
 
         string playerName = PlayerPrefs.GetString(BootstrapUI.PlayerNameKey, "Wizard");
         statusText.text = $"Welcome, {playerName}!";
-        Debug.Log("[MainMenuUI] Unity Services Ready. Buttons enabled.");
+        Debug.Log("[MainMenuUI] Unity Services Ready. Menu enabled.");
 
-        // Unsubscribe after first fire (prevents duplicate calls if event fired again)
+        // Auto-refresh lobby list
+        if (refreshListButton != null && lobbyListContainer != null && LobbyManager.Instance != null)
+        {
+            RefreshLobbyList();
+        }
+
+        // Unsubscribe
         if (RelayManager.Instance != null)
             RelayManager.Instance.OnRelayReady -= EnableMenuInteractions;
     }
 
+    // --- CREATE LOBBY ---
     private async void OnCreateGameClicked()
     {
-        Debug.Log("[MainMenuUI] Create Game button clicked.");
-
-        // Prevent double-clicks
-        createGameButton.interactable = false;
-        joinGameButton.interactable = false;
-        statusText.text = "Creating Relay allocation...";
-
-        if (RelayManager.Instance == null)
+        if (isProcessing)
         {
-            statusText.text = "RelayManager not found. Check console.";
-            Debug.LogError("[MainMenuUI] RelayManager.Instance is null.");
-            createGameButton.interactable = true;
-            joinGameButton.interactable = true;
+            Debug.LogWarning("[MainMenuUI] Already processing a request. Please wait.");
             return;
         }
 
-        string joinCode = await RelayManager.Instance.CreateRelay();
+        isProcessing = true;
+        SetInteractable(false);
 
-        if (!string.IsNullOrEmpty(joinCode))
+        string lobbyName = lobbyNameInput != null && !string.IsNullOrWhiteSpace(lobbyNameInput.text) 
+            ? lobbyNameInput.text.Trim() 
+            : "Lucky Arena";
+
+        statusText.text = "Creating Lobby...";
+        Debug.Log($"[MainMenuUI] Creating lobby: {lobbyName}");
+
+        if (LobbyManager.Instance == null)
         {
-            statusText.text = $"Host Started!\nJoin Code: {joinCode}";
-            GUIUtility.systemCopyBuffer = joinCode;
-            Debug.Log($"[MainMenuUI] Host created successfully. Join code copied to clipboard: {joinCode}");
+            statusText.text = "ERROR: LobbyManager not found!";
+            Debug.LogError("[MainMenuUI] LobbyManager.Instance is null.");
+            SetInteractable(true);
+            isProcessing = false;
+            return;
+        }
 
-            // Note: RelayManager.CreateRelay() loads GameScene already
+        bool success = await LobbyManager.Instance.CreateLobby(lobbyName, 4);
+
+        if (success)
+        {
+            statusText.text = "Lobby Created! Loading game...";
+            Debug.Log("[MainMenuUI] Lobby created successfully!");
+            // Note: Scene loading is handled by LobbyManager, so we don't re-enable buttons
         }
         else
         {
-            statusText.text = "Failed to start host. Check console.";
-            createGameButton.interactable = true;
-            joinGameButton.interactable = true;
-            Debug.LogError("[MainMenuUI] Failed to create relay.");
+            statusText.text = "Failed to create lobby. Try again.";
+            Debug.LogError("[MainMenuUI] Lobby creation failed.");
+            SetInteractable(true);
+            isProcessing = false;
         }
     }
 
+    // --- REFRESH LOBBY LIST ---
+    private async void RefreshLobbyList()
+    {
+        if (LobbyManager.Instance == null || lobbyListContainer == null || lobbyItemPrefab == null)
+        {
+            Debug.LogWarning("[MainMenuUI] Lobby browser UI not fully configured.");
+            return;
+        }
+
+        statusText.text = "Refreshing lobbies...";
+        Debug.Log("[MainMenuUI] Refreshing lobby list...");
+
+        // Clear old entries
+        foreach (Transform child in lobbyListContainer)
+        {
+            Destroy(child.gameObject);
+        }
+
+        // Query lobbies
+        List<Lobby> lobbies = await LobbyManager.Instance.GetActiveLobbies();
+
+        // Populate list
+        foreach (Lobby lobby in lobbies)
+        {
+            GameObject itemObj = Instantiate(lobbyItemPrefab, lobbyListContainer);
+            LobbyItem itemScript = itemObj.GetComponent<LobbyItem>();
+            
+            if (itemScript != null)
+            {
+                itemScript.Initialize(lobby, this);
+            }
+            else
+            {
+                Debug.LogError("[MainMenuUI] LobbyItem prefab is missing LobbyItem component!");
+            }
+        }
+
+        statusText.text = $"Found {lobbies.Count} lobby(s).";
+        Debug.Log($"[MainMenuUI] Lobby refresh complete. Found {lobbies.Count} lobbies.");
+    }
+
+    // --- JOIN SPECIFIC LOBBY (Called by LobbyItem) ---
+    public async void JoinSpecificLobby(Lobby lobby)
+    {
+        if (isProcessing)
+        {
+            Debug.LogWarning("[MainMenuUI] Already processing a request. Please wait.");
+            return;
+        }
+
+        isProcessing = true;
+        SetInteractable(false);
+
+        statusText.text = $"Joining '{lobby.Name}'...";
+        Debug.Log($"[MainMenuUI] Attempting to join lobby: {lobby.Name}");
+
+        if (LobbyManager.Instance == null)
+        {
+            statusText.text = "ERROR: LobbyManager not found!";
+            Debug.LogError("[MainMenuUI] LobbyManager.Instance is null.");
+            SetInteractable(true);
+            isProcessing = false;
+            return;
+        }
+
+        bool success = await LobbyManager.Instance.JoinLobby(lobby);
+
+        if (success)
+        {
+            statusText.text = "Joined! Waiting for host...";
+            Debug.Log("[MainMenuUI] Successfully joined lobby.");
+            // Don't re-enable buttons - we're waiting for scene sync
+        }
+        else
+        {
+            statusText.text = "Failed to join. Try again.";
+            Debug.LogError("[MainMenuUI] Failed to join lobby.");
+            SetInteractable(true);
+            isProcessing = false;
+        }
+    }
+
+    // --- DIRECT JOIN BY CODE (Optional fallback) ---
     private async void OnJoinGameClicked()
     {
+        if (joinCodeInput == null)
+        {
+            Debug.LogWarning("[MainMenuUI] Join code input not assigned.");
+            return;
+        }
+
+        if (isProcessing)
+        {
+            Debug.LogWarning("[MainMenuUI] Already processing a request. Please wait.");
+            return;
+        }
+
         string joinCode = joinCodeInput.text.Trim();
 
         if (string.IsNullOrEmpty(joinCode))
         {
             statusText.text = "Please enter a join code.";
-            Debug.LogWarning("[MainMenuUI] Join attempted with empty code.");
             return;
         }
 
-        Debug.Log($"[MainMenuUI] Join Game button clicked. Code: {joinCode}");
+        isProcessing = true;
+        SetInteractable(false);
 
-        // Prevent double-clicks
-        joinGameButton.interactable = false;
-        createGameButton.interactable = false;
         statusText.text = "Joining relay...";
+        Debug.Log($"[MainMenuUI] Joining via code: {joinCode}");
 
         if (RelayManager.Instance == null)
         {
-            statusText.text = "RelayManager not found. Check console.";
+            statusText.text = "ERROR: RelayManager not found!";
             Debug.LogError("[MainMenuUI] RelayManager.Instance is null.");
-            joinGameButton.interactable = true;
-            createGameButton.interactable = true;
+            SetInteractable(true);
+            isProcessing = false;
             return;
         }
 
@@ -125,29 +254,24 @@ public class MainMenuUI : MonoBehaviour
         if (success)
         {
             statusText.text = "Joined! Waiting for host...";
-            Debug.Log("[MainMenuUI] Successfully joined relay. Awaiting scene sync from host.");
-
-            // Client will be synced to GameScene by host automatically
+            Debug.Log("[MainMenuUI] Successfully joined via relay code.");
         }
         else
         {
             statusText.text = "Failed to join. Check code.";
-            joinGameButton.interactable = true;
-            createGameButton.interactable = true;
-            Debug.LogError("[MainMenuUI] Failed to join relay.");
+            Debug.LogError("[MainMenuUI] Failed to join via relay code.");
+            SetInteractable(true);
+            isProcessing = false;
         }
     }
 
     private void OnDestroy()
     {
         // Clean up listeners
-        if (createGameButton != null)
-            createGameButton.onClick.RemoveListener(OnCreateGameClicked);
+        if (createGameButton != null) createGameButton.onClick.RemoveListener(OnCreateGameClicked);
+        if (refreshListButton != null) refreshListButton.onClick.RemoveListener(RefreshLobbyList);
+        if (joinGameButton != null) joinGameButton.onClick.RemoveListener(OnJoinGameClicked);
 
-        if (joinGameButton != null)
-            joinGameButton.onClick.RemoveListener(OnJoinGameClicked);
-
-        // Clean up event subscription to prevent errors
         if (RelayManager.Instance != null)
             RelayManager.Instance.OnRelayReady -= EnableMenuInteractions;
     }
