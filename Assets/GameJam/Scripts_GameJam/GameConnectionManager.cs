@@ -75,7 +75,16 @@ public class GameConnectionManager : MonoBehaviour
             response.Reason = "Server error during approval";
         }
     }
-
+    
+    // LeaderboardManager'ın oyuncu ismini çekebilmesi için bu fonksiyonu ekle
+    public string GetPlayerName(ulong clientId)
+{
+        if (clientDataMap.TryGetValue(clientId, out UserData data))
+        {
+              return data.userName;
+        }
+               return null;
+}
     // --- QUEST 7: Presence & Departure ---
     private void OnClientDisconnect(ulong clientId)
     {

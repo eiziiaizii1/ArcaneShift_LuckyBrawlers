@@ -1787,12 +1787,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   createGameButton: {fileID: 375529562}
+  refreshListButton: {fileID: 491645224}
   joinGameButton: {fileID: 1311450916}
   joinCodeInput: {fileID: 998285439}
-  refreshListButton: {fileID: 491645224}
+  lobbyNameInput: {fileID: 1421863099}
   lobbyListContainer: {fileID: 1569974543}
   lobbyItemPrefab: {fileID: 4168227819855402253, guid: bce8ec40ec1dec041a6b6b430ed29289, type: 3}
-  lobbyNameInput: {fileID: 1421863099}
   statusText: {fileID: 1997865313}
 --- !u!1 &1311450914
 GameObject:
@@ -2307,7 +2307,7 @@ MonoBehaviour:
   NetworkConfig:
     ProtocolVersion: 0
     NetworkTransport: {fileID: 1670750778}
-    PlayerPrefab: {fileID: 0}
+    PlayerPrefab: {fileID: 8593513877603837951, guid: fdd178d5bbbe4064280640bfea840bc2, type: 3}
     Prefabs:
       NetworkPrefabsLists:
       - {fileID: 11400000, guid: 4936b81eba906ad4a9f4827f06453c3a, type: 2}
@@ -2738,7 +2738,7 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 1808940549}
   m_HandleRect: {fileID: 1808940548}
   m_Direction: 2
-  m_Value: 0
+  m_Value: 1
   m_Size: 1
   m_NumberOfSteps: 0
   m_OnValueChanged:
