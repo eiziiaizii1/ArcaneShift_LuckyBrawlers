@@ -100,20 +100,32 @@ public class Health : NetworkBehaviour
         // 2. Bekleme Süresi
         yield return new WaitForSeconds(3f);
 
-        // 3. Işınlanma (Teleport) İşlemi
+        // 3. Işınlanma (Teleport) İşlemi - Rastgele spawn noktası seç
         GameObject[] spawnPoints = GameObject.FindGameObjectsWithTag("Respawn");
         if (spawnPoints.Length > 0)
         {
             Vector3 newPos = spawnPoints[Random.Range(0, spawnPoints.Length)].transform.position;
 
-            // Network Transform'un çakışmaması için önce simülasyonu kapatıyoruz
-            if (rb != null)
-            {
-                rb.simulated = false;
-                rb.linearVelocity = Vector2.zero;
-            }
+            // Owner'a teleport komutunu gönder (client-authoritative model için gerekli)
+            TeleportClientRpc(newPos);
+        }
 
-            // Pozisyonu zorla değiştir
+        // 4. Oyuncuyu Canlandır
+        currentHealth.Value = maxHealth;
+        SetPlayerState(true);
+    }
+
+    [ClientRpc]
+    private void TeleportClientRpc(Vector3 newPos)
+    {
+        if (rb != null) rb.linearVelocity = Vector2.zero;
+
+        if (IsOwner)
+        {
+            // Network Transform'un ??ak???Ymamas?? i??in ??nce sim??lasyonu kapat??yoruz
+            if (rb != null) rb.simulated = false;
+
+            // Pozisyonu zorla de?Yi?Ytir
             transform.position = newPos;
 
             if (rb != null)
@@ -121,12 +133,14 @@ public class Health : NetworkBehaviour
                 rb.position = newPos;
                 rb.simulated = true;
             }
+            return;
         }
 
-        // 4. Oyuncuyu Canlandır
-        currentHealth.Value = maxHealth;
-        SetPlayerState(true);
+        // Di?Yer client'larda gecikmeyi ?nlemek i?in pozisyonu an??nda g??ncelle
+        transform.position = newPos;
+        if (rb != null) rb.position = newPos;
     }
+
 
     private void SetPlayerState(bool isActive)
     {
