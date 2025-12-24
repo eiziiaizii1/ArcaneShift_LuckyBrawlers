@@ -15,6 +15,11 @@ public class PlayerController : NetworkBehaviour
     [SerializeField] private GameObject fireballPrefab; // Editörden atanacak
     [SerializeField] private Transform firePoint;       // Editörden atanacak
 
+    [Header("Camera Settings")]
+    [SerializeField] private CinemachineCamera sceneCamera;
+    [SerializeField] private Transform cameraFollowTarget;
+    [SerializeField] private float cameraSearchTimeout = 5f;
+
     [Header("Aiming Settings")]
     [SerializeField] private Sprite arrowSprite; // Sadece sprite asset'i
     [SerializeField] private float aimIndicatorRadius = 1.5f; // Okun oyuncunun etrafında dönme yarıçapı
@@ -24,6 +29,8 @@ public class PlayerController : NetworkBehaviour
     private Vector2 moveInput;
     private GameObject aimArrowInstance; // Spawn edilen ok nesnesi
     private SpriteRenderer aimArrowRenderer;
+
+    private static CinemachineCamera cachedSceneCamera;
     
     // Görünürlük referansları (Respawn sırasında gizlenmek için)
     private SpriteRenderer playerSprite;
@@ -58,9 +65,8 @@ public class PlayerController : NetworkBehaviour
         {
             Debug.Log("[PlayerController] OnNetworkSpawn called for owner");
             
-            // 1. Kamera Bağlama
-            var cam = FindFirstObjectByType<CinemachineCamera>();
-            if (cam != null) cam.Follow = transform;
+            // 1. Kamera Bağlama (coroutine ile bekle)
+            StartCoroutine(SetupCameraFollow());
 
             // 2. HOST SPAWN FIX: Host (0,0)'da doğarsa spawn noktasına taşı
             if (IsServer)
@@ -78,6 +84,47 @@ public class PlayerController : NetworkBehaviour
         {
             this.enabled = false; // Başkasını kontrol etme
         }
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        if (!IsOwner) return;
+        var cam = ResolveCamera();
+        var target = cameraFollowTarget != null ? cameraFollowTarget : transform;
+        if (cam != null && cam.Follow == target) cam.Follow = null;
+    }
+
+    private IEnumerator SetupCameraFollow()
+    {
+        CinemachineCamera cam = ResolveCamera();
+        float timer = 0f;
+
+        // Kamera bulunana kadar bekle (max 5 saniye)
+        while (cam == null && timer < cameraSearchTimeout)
+        {
+            yield return null;
+            timer += Time.unscaledDeltaTime;
+            cam = ResolveCamera();
+        }
+
+        if (cam != null)
+        {
+            var target = cameraFollowTarget != null ? cameraFollowTarget : transform;
+            cam.Follow = target;
+            Debug.Log("[PlayerController] Camera follow set successfully");
+        }
+        else
+        {
+            Debug.LogWarning("[PlayerController] CinemachineCamera bulunamadı!");
+        }
+    }
+
+    private CinemachineCamera ResolveCamera()
+    {
+        if (sceneCamera != null) return sceneCamera;
+        if (cachedSceneCamera != null) return cachedSceneCamera;
+        cachedSceneCamera = FindFirstObjectByType<CinemachineCamera>(FindObjectsInactive.Include);
+        return cachedSceneCamera;
     }
 
     private void CreateAimingArrow()
