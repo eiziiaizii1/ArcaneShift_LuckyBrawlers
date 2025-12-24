@@ -1,98 +1,80 @@
 using Unity.Netcode;
 using UnityEngine;
+using UnityEngine.UI; // UI kütüphanesi şart
 using System.Collections;
+using TMPro;
 
-// Quest 16: Lucky Box Modifikasyon Tipleri
-public enum ModifierType
-{
-    None,
-    SpeedBoost,
-    SlimeMode,
-    DoubleScore,
-    GhostMode
-}
+
+// Etkinlik tiplerini burada tanımlıyoruz ki PlayerController da görebilsin
+public enum ModifierType { None, SpeedBoost, ReverseControls }
 
 public class LuckyBox : NetworkBehaviour
 {
-    // Sunucu kontrollü senkronize değişken (Sadece sunucu yazar, herkes okur)
-    public NetworkVariable<ModifierType> currentModifier = new NetworkVariable<ModifierType>(
+    // Global etkinlik durumu (Sadece sunucu yazar, herkes okur)
+    public static NetworkVariable<ModifierType> ActiveGlobalEvent = new NetworkVariable<ModifierType>(
         ModifierType.None, 
         NetworkVariableReadPermission.Everyone, 
         NetworkVariableWritePermission.Server
     );
 
-    [SerializeField] private GameObject boxVisual; // Kutunun görsel objesi
-    private bool isAvailable = false; // Kutu şu an toplanabilir mi?
+    // Geri sayım saniyesi
+    public static NetworkVariable<int> EventTimer = new NetworkVariable<int>(0);
+
+    [Header("UI Settings")]
+    // Eğer TextMeshPro kullanıyorsan aşağıdaki satırı kullan:
+    [SerializeField] private TextMeshProUGUI eventDisplayText;
 
     public override void OnNetworkSpawn()
     {
-        if (IsServer)
-        {
-            // Sunucu kutunun döngüsünü başlatır
-            StartCoroutine(SpawnCycle());
-        }
-
-        // Kutu içeriği değiştiğinde (dolduğunda veya boşaldığında) tüm clientlarda tetiklenir
-        currentModifier.OnValueChanged += OnModifierChanged;
-    }
-
-    private void OnModifierChanged(ModifierType oldVal, ModifierType newVal)
-    {
-        // Kutu dolduysa görseli aç, boşaldıysa kapat
-        bool hasContent = (newVal != ModifierType.None);
-        boxVisual.SetActive(hasContent);
+        if (IsServer) StartCoroutine(GlobalEventCycle());
         
-        if (hasContent)
-            Debug.Log($"<color=cyan>[Lucky Box]</color> Kutuda yeni bir güç belirdi: {newVal}");
+        // Değerler değiştikçe UI yazısını yenile
+        EventTimer.OnValueChanged += (oldVal, newVal) => RefreshUI();
+        ActiveGlobalEvent.OnValueChanged += (oldVal, newVal) => RefreshUI();
     }
 
-    private IEnumerator SpawnCycle()
+    private void RefreshUI()
+    {
+        if (eventDisplayText == null) return;
+
+        // Etkinlik yoksa bekleme süresini göster
+        if (ActiveGlobalEvent.Value == ModifierType.None)
+        {
+            eventDisplayText.text = "Next Event In: " + EventTimer.Value + "s";
+            eventDisplayText.color = Color.white;
+        }
+        else
+        {
+            // Etkinlik varsa ismini ve kalan süresini göster
+            string eventName = ActiveGlobalEvent.Value == ModifierType.SpeedBoost ? "SPEED BOOST!" : "REVERSE CONTROLS!";
+            eventDisplayText.text = "CURRENT EVENT: " + eventName + " (" + EventTimer.Value + "s)";
+            eventDisplayText.color = Color.yellow; // Dikkat çekmesi için sarı yapıyoruz
+        }
+    }
+
+    private IEnumerator GlobalEventCycle()
     {
         while (true)
         {
-            // Kutu boşsa 15-20 saniye bekle ve yenisini oluştur
-            if (!isAvailable)
+            // 5 saniye boyunca "Sıradaki Etkinlik" geri sayımı
+            for (int i = 5; i > 0; i--)
             {
-                float waitTime = Random.Range(15f, 20f);
-                yield return new WaitForSeconds(waitTime);
-
-                isAvailable = true;
-                // Rastgele bir güç seç (None hariç)
-                currentModifier.Value = (ModifierType)Random.Range(1, 5);
+                EventTimer.Value = i;
+                yield return new WaitForSeconds(1f);
             }
-            yield return null;
+
+            // Rastgele kaos seç (1 veya 2)
+            ActiveGlobalEvent.Value = (ModifierType)Random.Range(1, 3);
+
+            // 20 saniye boyunca "Mevcut Etkinlik" geri sayımı
+            for (int i = 20; i > 0; i--)
+            {
+                EventTimer.Value = i;
+                yield return new WaitForSeconds(1f);
+            }
+
+            // Her şeyi sıfırla ve başa dön
+            ActiveGlobalEvent.Value = ModifierType.None;
         }
-    }
-
-   private void OnTriggerEnter2D(Collider2D other)
-{
-    // 1. Çarpışma tetikleniyor mu? (Konsolda bunu görmelisin)
-    Debug.Log($"<color=orange>[LuckyBox]</color> Temas algılandı: {other.name}");
-
-    if (!IsServer || !isAvailable) return;
-
-    if (other.CompareTag("Player"))
-    {
-        Debug.Log("<color=green>[LuckyBox]</color> Çarpan bir oyuncu! Güç uygulanıyor.");
-        var networkObject = other.GetComponent<NetworkObject>();
-        if (networkObject != null)
-        {
-            ApplyModifier(networkObject.OwnerClientId, currentModifier.Value);
-            isAvailable = false;
-            currentModifier.Value = ModifierType.None;
-        }
-    }
-    else
-    {
-        // Eğer çarptığın halde Tag tutmuyorsa burası yazar
-        Debug.Log($"<color=red>[LuckyBox]</color> Çarpanın Tag'i yanlış: {other.tag}");
-    }
-}
-    private void ApplyModifier(ulong clientId, ModifierType type)
-    {
-        Debug.Log($"<color=green>BAŞARI:</color> Oyuncu {clientId} şu gücü kazandı: {type}");
-        
-        // BURAYA GELECEK: Quest 17 efektlerini tetikleyen fonksiyonlar
-        // Örn: PlayerController.instance.GetModifierRpc(type, clientId);
     }
 }

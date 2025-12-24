@@ -5,15 +5,18 @@ using Unity.Cinemachine;
 
 public class PlayerController : NetworkBehaviour
 {
-    // Quest 17 için gerekli skor değişkeni
     public NetworkVariable<int> score = new NetworkVariable<int>(0);
     
     [Header("Movement Settings")]
     [SerializeField] private float moveSpeed = 5f;
+    [SerializeField] private float speedBoostMultiplier = 2f; 
 
     [Header("Combat Settings")]
-    [SerializeField] private GameObject fireballPrefab; // Editörden atanacak
-    [SerializeField] private Transform firePoint;       // Editörden atanacak
+    [SerializeField] private GameObject fireballPrefab; 
+    [SerializeField] private Transform firePoint;
+    [SerializeField] private float fireRate = 0.5f; // Saniyede 2 mermi
+    [SerializeField] private float fireballBaseSpeed = 10f; 
+    private float nextFireTime = 0f;
 
     [Header("Camera Settings")]
     [SerializeField] private CinemachineCamera sceneCamera;
@@ -21,54 +24,31 @@ public class PlayerController : NetworkBehaviour
     [SerializeField] private float cameraSearchTimeout = 5f;
 
     [Header("Aiming Settings")]
-    [SerializeField] private Sprite arrowSprite; // Sadece sprite asset'i
-    [SerializeField] private float aimIndicatorRadius = 1.5f; // Okun oyuncunun etrafında dönme yarıçapı
-    [SerializeField] private float arrowScale = 0.5f; // Ok boyutu
+    [SerializeField] private Sprite arrowSprite; 
+    [SerializeField] private float aimIndicatorRadius = 1.5f; 
+    [SerializeField] private float arrowScale = 0.5f; 
 
     private Rigidbody2D rb;
     private Vector2 moveInput;
-    private GameObject aimArrowInstance; // Spawn edilen ok nesnesi
+    private GameObject aimArrowInstance; 
     private SpriteRenderer aimArrowRenderer;
-
     private static CinemachineCamera cachedSceneCamera;
-    
-    // Görünürlük referansları (Respawn sırasında gizlenmek için)
     private SpriteRenderer playerSprite;
     private Canvas nameCanvas;
 
     private void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
-        
-        // SpriteRenderer'ı bul - hem parent'ta hem child'da arayabilir
-        playerSprite = GetComponent<SpriteRenderer>();
-        if (playerSprite == null)
-        {
-            playerSprite = GetComponentInChildren<SpriteRenderer>();
-        }
-        
+        playerSprite = GetComponent<SpriteRenderer>() ?? GetComponentInChildren<SpriteRenderer>();
         nameCanvas = GetComponentInChildren<Canvas>();
-        
-        if (playerSprite != null)
-        {
-            Debug.Log("[PlayerController] Player sprite found successfully");
-        }
-        else
-        {
-            Debug.LogWarning("[PlayerController] Player sprite not found!");
-        }
     }
 
     public override void OnNetworkSpawn()
     {
         if (IsOwner)
         {
-            Debug.Log("[PlayerController] OnNetworkSpawn called for owner");
-            
-            // 1. Kamera Bağlama (coroutine ile bekle)
             StartCoroutine(SetupCameraFollow());
 
-            // 2. HOST SPAWN FIX: Host (0,0)'da doğarsa spawn noktasına taşı
             if (IsServer)
             {
                 SetVisibility(false);
@@ -76,13 +56,12 @@ public class PlayerController : NetworkBehaviour
             }
             else
             {
-                // Client ise direkt arrow'u spawn et
                 CreateAimingArrow();
             }
         }
         else
         {
-            this.enabled = false; // Başkasını kontrol etme
+            this.enabled = false; 
         }
     }
 
@@ -98,24 +77,16 @@ public class PlayerController : NetworkBehaviour
     {
         CinemachineCamera cam = ResolveCamera();
         float timer = 0f;
-
-        // Kamera bulunana kadar bekle (max 5 saniye)
         while (cam == null && timer < cameraSearchTimeout)
         {
             yield return null;
             timer += Time.unscaledDeltaTime;
             cam = ResolveCamera();
         }
-
         if (cam != null)
         {
             var target = cameraFollowTarget != null ? cameraFollowTarget : transform;
             cam.Follow = target;
-            Debug.Log("[PlayerController] Camera follow set successfully");
-        }
-        else
-        {
-            Debug.LogWarning("[PlayerController] CinemachineCamera bulunamadı!");
         }
     }
 
@@ -129,52 +100,22 @@ public class PlayerController : NetworkBehaviour
 
     private void CreateAimingArrow()
     {
-        if (arrowSprite == null)
-        {
-            Debug.LogError("[PlayerController] Arrow Sprite is not assigned! Please assign an arrow sprite in the inspector.");
-            return;
-        }
-
-        // Tamamen yeni bir GameObject oluştur
+        if (arrowSprite == null) return;
         aimArrowInstance = new GameObject("AimArrow_Local");
-        aimArrowInstance.transform.position = transform.position;
-        aimArrowInstance.transform.rotation = Quaternion.identity;
         aimArrowInstance.transform.localScale = Vector3.one * arrowScale;
-
-        // SpriteRenderer ekle
         aimArrowRenderer = aimArrowInstance.AddComponent<SpriteRenderer>();
         aimArrowRenderer.sprite = arrowSprite;
-        
-        // Player sprite varsa onun sorting layer'ını kullan
-        if (playerSprite != null)
-        {
+        if (playerSprite != null) {
             aimArrowRenderer.sortingLayerName = playerSprite.sortingLayerName;
             aimArrowRenderer.sortingOrder = playerSprite.sortingOrder + 1;
         }
-        else
-        {
-            aimArrowRenderer.sortingLayerName = "Default";
-            aimArrowRenderer.sortingOrder = 10;
-        }
-        
-        aimArrowRenderer.color = Color.yellow; // Sarı renk - görünür olsun
-
-        Debug.Log($"[PlayerController] Arrow created successfully at {aimArrowInstance.transform.position}");
+        aimArrowRenderer.color = Color.yellow;
     }
 
-    // Public method for Health.cs to control arrow visibility
     public void SetArrowVisibility(bool isVisible)
     {
-        if (aimArrowRenderer != null)
-        {
-            aimArrowRenderer.enabled = isVisible;
-        }
-        
-        // Eğer görünür hale geliyorsa ama arrow yoksa, oluştur
-        if (isVisible && aimArrowInstance == null && IsOwner)
-        {
-            CreateAimingArrow();
-        }
+        if (aimArrowRenderer != null) aimArrowRenderer.enabled = isVisible;
+        if (isVisible && aimArrowInstance == null && IsOwner) CreateAimingArrow();
     }
 
     private void Update()
@@ -191,140 +132,113 @@ public class PlayerController : NetworkBehaviour
 
     private void InputHandling()
     {
-        // Hareket
         float moveX = Input.GetAxisRaw("Horizontal");
         float moveY = Input.GetAxisRaw("Vertical");
-        moveInput = new Vector2(moveX, moveY).normalized;
 
-        // Aiming Indicator'ı Güncelle
+        // KAOS: TERS KONTROL
+        if (LuckyBox.ActiveGlobalEvent.Value == ModifierType.ReverseControls)
+        {
+            moveX *= -1;
+            moveY *= -1;
+        }
+
+        moveInput = new Vector2(moveX, moveY).normalized;
         UpdateAimingIndicator();
 
-        // Ateş Etme (Sol Tık)
-        if (Input.GetButtonDown("Fire1"))
+        // ATEŞ ETME (Kısıtlama ve Hız Ayarı)
+        if (Input.GetButton("Fire1") && Time.time >= nextFireTime)
         {
             if (fireballPrefab != null && aimArrowInstance != null)
             {
-                // Mermi arrow'un pozisyonundan fırlatılsın
-                Vector3 shootPosition = aimArrowInstance.transform.position;
-                Quaternion shootRotation = aimArrowInstance.transform.rotation;
-                
-                ShootServerRpc(shootPosition, shootRotation);
+                float projSpeed = fireballBaseSpeed;
+                if (LuckyBox.ActiveGlobalEvent.Value == ModifierType.SpeedBoost)
+                {
+                    projSpeed *= speedBoostMultiplier; 
+                }
+
+                ShootServerRpc(aimArrowInstance.transform.position, aimArrowInstance.transform.rotation, projSpeed);
+                nextFireTime = Time.time + fireRate;
             }
         }
     }
 
     private void UpdateAimingIndicator()
     {
-        if (aimArrowInstance == null)
-        {
-            // Eğer arrow yoksa ve player görünürse, oluştur
-            if (playerSprite != null && playerSprite.enabled)
-            {
-                CreateAimingArrow();
-            }
+        if (aimArrowInstance == null) {
+            if (playerSprite != null && playerSprite.enabled) CreateAimingArrow();
             return;
         }
-
-        // Mouse pozisyonunu al
         Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
         mousePos.z = 0f;
-
-        // Player'dan mouse'a yön vektörü
         Vector2 direction = (mousePos - transform.position).normalized;
-
-        // Ok'u oyuncunun etrafında aimIndicatorRadius kadar uzakta konumlandır
         Vector3 arrowPosition = transform.position + (Vector3)direction * aimIndicatorRadius;
-        arrowPosition.z = 0f; // Z eksenini sıfırla
         aimArrowInstance.transform.position = arrowPosition;
-
-        // Ok'u mouse yönüne çevir (Ok sprite'ının yukarı baktığını varsayıyoruz)
         float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg - 90f;
         aimArrowInstance.transform.rotation = Quaternion.Euler(0, 0, angle);
     }
 
     private void Move()
     {
-        if (rb != null) rb.linearVelocity = moveInput * moveSpeed;
-        else transform.position += (Vector3)moveInput * moveSpeed * Time.deltaTime;
+        float currentSpeed = moveSpeed;
+        if (LuckyBox.ActiveGlobalEvent.Value == ModifierType.SpeedBoost)
+        {
+            currentSpeed *= speedBoostMultiplier;
+        }
+
+        if (rb != null) rb.linearVelocity = moveInput * currentSpeed;
+        else transform.position += (Vector3)moveInput * currentSpeed * Time.deltaTime;
     }
 
-    // --- COMBAT NETWORKING ---
-
     [ServerRpc]
-    private void ShootServerRpc(Vector3 position, Quaternion rotation, ServerRpcParams rpcParams = default)
+    private void ShootServerRpc(Vector3 position, Quaternion rotation, float speed, ServerRpcParams rpcParams = default)
     {
-        // 1. Mermiyi sunucuda yarat
         GameObject fireball = Instantiate(fireballPrefab, position, rotation);
         
-        // 2. SAHİPLİK AYARI (Kritik Kısım!)
-        // Merminin sahibi, bu fonksiyonu çağıran kişi (SenderClientId) olsun.
+        // HATA ÇÖZÜMÜ: Senin scriptinin adı FireballLogic olduğu için onu arıyoruz
+        var fireballScript = fireball.GetComponent<FireballLogic>(); 
+        if (fireballScript != null)
+        {
+            // Burası önemli: FireballLogic içindeki speed değerini set ediyoruz
+            fireballScript.SetSpeed(speed);
+        }
+
         ulong shooterId = rpcParams.Receive.SenderClientId;
         fireball.GetComponent<NetworkObject>().SpawnWithOwnership(shooterId);
     }
-
-    // --- YARDIMCI FONKSİYONLAR (Host Spawn Fix) ---
 
     private void SetVisibility(bool isVisible)
     {
         if (playerSprite != null) playerSprite.enabled = isVisible;
         if (nameCanvas != null) nameCanvas.enabled = isVisible;
-        
-        if (aimArrowRenderer != null)
-        {
-            aimArrowRenderer.enabled = isVisible;
-        }
+        if (aimArrowRenderer != null) aimArrowRenderer.enabled = isVisible;
     }
 
     private IEnumerator MoveHostToSpawnPoint()
     {
         float timer = 0f;
         GameObject[] points = null;
-
-        while (timer < 3f)
-        {
+        while (timer < 3f) {
             points = GameObject.FindGameObjectsWithTag("Respawn");
             if (points.Length > 0) break;
             yield return new WaitForSeconds(0.1f);
             timer += 0.1f;
         }
-
-        if (points != null && points.Length > 0)
-        {
+        if (points != null && points.Length > 0) {
             var target = points[Random.Range(0, points.Length)].transform.position;
             if (rb != null) rb.position = target;
             else transform.position = target;
         }
-        
         SetVisibility(true);
-        
-        // Host için arrow'u burada oluştur (visibility true olduktan sonra)
         CreateAimingArrow();
     }
 
-    private void OnDestroy()
-    {
-        // Aim arrow'u temizle
-        if (aimArrowInstance != null)
-        {
-            Destroy(aimArrowInstance);
-        }
+    // NetworkBehaviour OnDestroy override hatasını çözdük
+    public override void OnDestroy() 
+    { 
+        base.OnDestroy();
+        if (aimArrowInstance != null) Destroy(aimArrowInstance); 
     }
 
-    private void OnDisable()
-    {
-        // Script disable olduğunda arrow'u gizle
-        if (aimArrowRenderer != null)
-        {
-            aimArrowRenderer.enabled = false;
-        }
-    }
-
-    private void OnEnable()
-    {
-        // Script enable olduğunda arrow'u göster (eğer varsa)
-        if (aimArrowRenderer != null && IsOwner)
-        {
-            aimArrowRenderer.enabled = true;
-        }
-    }
+    private void OnDisable() { if (aimArrowRenderer != null) aimArrowRenderer.enabled = false; }
+    private void OnEnable() { if (aimArrowRenderer != null && IsOwner) aimArrowRenderer.enabled = true; }
 }
