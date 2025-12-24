@@ -20,7 +20,13 @@ public class Health : NetworkBehaviour
 
     private void Awake()
     {
+        // SpriteRenderer'ı bul - hem parent'ta hem child'da arayabilir
         spriteRenderer = GetComponent<SpriteRenderer>();
+        if (spriteRenderer == null)
+        {
+            spriteRenderer = GetComponentInChildren<SpriteRenderer>();
+        }
+        
         col = GetComponent<Collider2D>();
         controller = GetComponent<PlayerController>();
         nameCanvas = GetComponentInChildren<Canvas>();
@@ -138,7 +144,12 @@ public class Health : NetworkBehaviour
     {
         if (spriteRenderer != null) spriteRenderer.enabled = isActive;
         if (col != null) col.enabled = isActive;
-        if (controller != null) controller.enabled = isActive;
+        if (controller != null) 
+        {
+            controller.enabled = isActive;
+            // IMPORTANT: Also control the arrow visibility
+            controller.SetArrowVisibility(isActive);
+        }
         if (nameCanvas != null) nameCanvas.enabled = isActive;
     }
 
