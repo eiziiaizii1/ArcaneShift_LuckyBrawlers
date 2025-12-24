@@ -106,7 +106,7 @@ public void UpdatePlayerName(ulong id, string realName)
         }
     }
 
-    public void UpdateScore(ulong id, int pointsToAdd)
+   public void UpdateScore(ulong id, int pointsToAdd)
 {
     if (!IsServer) return;
 
@@ -115,68 +115,60 @@ public void UpdatePlayerName(ulong id, string realName)
         if (playerRoster[i].ClientId == id)
         {
             var data = playerRoster[i];
-            
-            // Mevcut skorun üzerine gelen puanı ekliyoruz
-            data.Score += pointsToAdd; 
-            
-            playerRoster[i] = data; // Değişikliği ağa yay
-            Debug.Log($"[Score Update] Client: {id}, Yeni Skor: {data.Score}");
+            data.Score += pointsToAdd; // Skoru ÜSTÜNE EKLE
+            playerRoster[i] = data;    // Listeyi güncelle (Bu satır UI'ı tetikler)
             break;
         }
     }
 }
 
   private void UpdateUI()
+{
+    // 1. Eski satırları temizle
+    foreach (var entry in spawnedEntries) if (entry != null) Destroy(entry);
+    spawnedEntries.Clear();
+
+    // 2. Sıralama (Hata almamak için listeye kopyalayıp sıralıyoruz)
+    List<PlayerStateData> sortedList = new List<PlayerStateData>();
+    foreach (var p in playerRoster) sortedList.Add(p);
+    sortedList.Sort((a, b) => b.Score.CompareTo(a.Score));
+
+    // 3. UI Oluşturma
+    for (int i = 0; i < sortedList.Count; i++)
     {
-        // 1. Önceki satırları temizle
-        foreach (var entry in spawnedEntries) if (entry != null) Destroy(entry);
-        spawnedEntries.Clear();
+        var p = sortedList[i];
+        GameObject newEntry = Instantiate(entryPrefab, entryContainer);
+        spawnedEntries.Add(newEntry);
 
-        // 2. NetworkList'i düz bir listeye aktar (Sıralama için güvenli yol)
-        List<PlayerStateData> sortedList = new List<PlayerStateData>();
-        foreach (var p in playerRoster) sortedList.Add(p);
-
-        // 3. Basit bir sıralama (Büyükten küçüğe)
-        sortedList.Sort((a, b) => b.Score.CompareTo(a.Score));
-
-        // 4. Her oyuncu için prefab oluştur
-        for (int i = 0; i < sortedList.Count; i++)
+        var texts = newEntry.GetComponentsInChildren<TextMeshProUGUI>();
+        
+        // Eğer 3 tane metin kutusu bulduysa (Rank, Name, Score)
+        if (texts.Length >= 3)
         {
-            var p = sortedList[i];
-            GameObject newEntry = Instantiate(entryPrefab, entryContainer);
-            spawnedEntries.Add(newEntry);
+            // i=0 iken 1. yazar, i=1 iken 2. yazar...
+            texts[0].text = (i + 1).ToString() + "."; 
+            texts[1].text = p.PlayerName.ToString(); 
+            texts[2].text = p.Score.ToString();
 
-            // Eski çalışan mantığın: GetComponentsInChildren ile metinleri bulma
-            var texts = newEntry.GetComponentsInChildren<TextMeshProUGUI>();
-            
-            if (texts.Length >= 2)
+            // Self Highlight: Senin adın sarı ve kalın olsun
+            if (p.ClientId == NetworkManager.Singleton.LocalClientId)
             {
-                // Eğer prefab'ında 3 metin varsa: Rank, Name, Score
-                if (texts.Length >= 3)
-                {
-                    texts[0].text = (i + 1).ToString() + "."; // Sıra
-                    texts[1].text = p.PlayerName.ToString(); // İsim
-                    texts[2].text = p.Score.ToString();      // Skor
-                    
-                    // Kendini Sarı Yap (Vurgula)
-                    if (p.ClientId == NetworkManager.Singleton.LocalClientId)
-                    {
-                        texts[1].color = Color.yellow;
-                        texts[1].fontStyle = FontStyles.Bold;
-                    }
-                }
-                else // Sadece Name ve Score varsa (Eski halin)
-                {
-                    texts[0].text = p.PlayerName.ToString();
-                    texts[1].text = p.Score.ToString();
-
-                    // Kendini Sarı Yap
-                    if (p.ClientId == NetworkManager.Singleton.LocalClientId)
-                        texts[0].color = Color.yellow;
-                }
+                texts[1].color = Color.yellow;
+                texts[1].fontStyle = FontStyles.Bold;
             }
         }
+        // Eğer hala 2 metin kutun varsa (Eski sistem):
+        else if (texts.Length == 2)
+        {
+            // İsim kısmına numarayı ekleyerek yaz: "1. moon" gibi
+            texts[0].text = (i + 1) + ". " + p.PlayerName.ToString();
+            texts[1].text = p.Score.ToString();
+
+            if (p.ClientId == NetworkManager.Singleton.LocalClientId)
+                texts[0].color = Color.yellow;
+        }
     }
+}
     private void Update()
     {
         // Tab tuşu kontrolü
