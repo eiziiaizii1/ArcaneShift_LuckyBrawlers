@@ -106,7 +106,7 @@ SpriteRenderer:
   m_LightmapParameters: {fileID: 0}
   m_SortingLayerID: 0
   m_SortingLayer: 0
-  m_SortingOrder: 0
+  m_SortingOrder: 10
   m_Sprite: {fileID: 8198504680035991130, guid: 622251c3e08e35149ab89ed9ded6923f, type: 3}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_FlipX: 0
@@ -269,7 +269,7 @@ SpriteRenderer:
   m_LightmapParameters: {fileID: 0}
   m_SortingLayerID: 0
   m_SortingLayer: 0
-  m_SortingOrder: 0
+  m_SortingOrder: 10
   m_Sprite: {fileID: 1809294395975449351, guid: 0d0c180a1157d434996fcff8cfcd63b9, type: 3}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_FlipX: 0
@@ -733,6 +733,7 @@ MonoBehaviour:
   firePoint: {fileID: 8516783338779248797}
   fireRate: 0.5
   fireballBaseSpeed: 10
+  fireballBaseDamage: 25
   sceneCamera: {fileID: 0}
   cameraFollowTarget: {fileID: 0}
   cameraSearchTimeout: 5
@@ -758,18 +759,21 @@ MonoBehaviour:
     m_InternalValue: 1
   isSlimeForm:
     m_InternalValue: 0
+  slimeVisual: {fileID: 0}
+  boxCollider: {fileID: 0}
   minScale: 0.3
   maxScale: 1
   scalePerDamage: 0.007
-  maxSpeedMultiplier: 2
-  minSpeedMultiplier: 1
+  scaleSpeed: 10
+  speedAtMinScale: 2
+  speedAtMaxScale: 1
+  damageAtMinScale: 0.4
+  damageAtMaxScale: 1
+  gloopBaseDamage: 25
   gloopPrefab: {fileID: 631105796896545203, guid: e751fcc783b687149b2840371e9f8871, type: 3}
   gloopSpeed: 7
-  gloopDamage: 20
   transformVFX: {fileID: 0}
   transformSound: {fileID: 0}
-  animator: {fileID: 7640312092797741885}
-  sizeChangeHandler: {fileID: 0}
 --- !u!114 &7640312092797741885
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1008,15 +1012,10 @@ MonoBehaviour:
   slimeVisual: {fileID: 5145274326745807584}
   mainCollider: {fileID: 3214181975858721720}
   wizardVisualScaleMultiplier: 1
-  wizardVisualScaleOffset: 0
   wizardColliderScaleMultiplier: 0.95
   slimeVisualScaleMultiplier: 1.1
-  slimeVisualScaleOffset: 0
   slimeColliderScaleMultiplier: 0.85
   minScale: 0.3
   maxScale: 2.5
   scaleTransitionSpeed: 8
-  baseBoxColliderSize: {x: 0, y: 0}
-  baseCircleColliderRadius: 0
-  baseCapsuleColliderSize: {x: 0, y: 0}
   showDebugInfo: 1
