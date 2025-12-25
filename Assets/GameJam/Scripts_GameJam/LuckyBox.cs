@@ -22,8 +22,8 @@ public enum ModifierType
     None = 0,
     SpeedBoost = 1, 
     ReverseControls = 2,
-    SlimeShift = 3,      // NEW: Transform everyone to slime
-    SizeChange = 4       // NEW: Make everyone bigger/smaller
+    SlimeShift = 3,      // Transform everyone to slime
+    SizeChange = 4       // Make everyone bigger/smaller
 }
 
 public class LuckyBox : NetworkBehaviour
@@ -65,10 +65,10 @@ public class LuckyBox : NetworkBehaviour
 
     [Header("Event Timing")]
     [Tooltip("Time between events (countdown)")]
-    [SerializeField] private int timeBetweenEvents = 5;
+    [SerializeField] private int timeBetweenEvents = 4;  // UPDATED: 4 seconds
     
     [Tooltip("Duration of each event")]
-    [SerializeField] private int eventDuration = 20;
+    [SerializeField] private int eventDuration = 10;     // UPDATED: 10 seconds
 
     [Header("Modifier Weights")]
     [Tooltip("Chance weights for each modifier type")]
@@ -312,12 +312,7 @@ public class LuckyBox : NetworkBehaviour
         // Size change is read from SizeMultiplier NetworkVariable
         // PlayerController/SlimeController should read this value
         
-        // Optional: Directly scale the visual here
-        SlimeController slime = playerObj.GetComponent<SlimeController>();
-        ProceduralCharacterAnimator animator = playerObj.GetComponent<ProceduralCharacterAnimator>();
-        
         // The actual scaling is handled by the player reading SizeMultiplier
-        // This method just logs
         if (activate)
         {
             Debug.Log($"[LuckyBox] Size change activated: {SizeMultiplier.Value}x");
@@ -416,7 +411,6 @@ public class LuckyBox : NetworkBehaviour
         // Play activation VFX
         if (eventActivationVFX != null)
         {
-            // Spawn at center of arena or at each player
             Instantiate(eventActivationVFX, Vector3.zero, Quaternion.identity);
         }
 

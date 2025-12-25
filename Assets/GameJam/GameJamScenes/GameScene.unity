@@ -574,7 +574,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_Material: {fileID: 0}
-  m_Color: {r: 1, g: 0.8799138, b: 0, a: 0.12156863}
+  m_Color: {r: 1, g: 0.8799138, b: 0, a: 0.25490198}
   m_RaycastTarget: 1
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
@@ -1157,13 +1157,14 @@ MonoBehaviour:
   readyIndicator: {fileID: 930057984}
   chargingColor: {r: 0.5, g: 0.8, b: 1, a: 1}
   readyColor: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
+  firingColor: {r: 1, g: 0, b: 0, a: 1}
   slimeChargingColor: {r: 0.3, g: 1, b: 0.3, a: 1}
   slimeReadyColor: {r: 0.5, g: 1, b: 0.5, a: 1}
   pulseSpeed: 2
   pulseIntensity: 0.2
   fillSmoothSpeed: 5
   canvasGroup: {fileID: 1250021152}
-  hideWhenWizard: 0
+  alwaysVisible: 1
 --- !u!225 &1250021152
 CanvasGroup:
   m_ObjectHideFlags: 0
@@ -2692,7 +2693,7 @@ MonoBehaviour:
   m_PreserveAspect: 0
   m_FillCenter: 1
   m_FillMethod: 0
-  m_FillAmount: 1
+  m_FillAmount: 0.5
   m_FillClockwise: 1
   m_FillOrigin: 0
   m_UseSpriteMesh: 0
@@ -3061,17 +3062,23 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   scaleFillImage: {fileID: 1312364857}
   speedFillImage: {fileID: 1701517827}
-  scaleText: {fileID: 2004871090}
-  speedText: {fileID: 2140799619}
+  scaleValueText: {fileID: 2004871090}
+  speedValueText: {fileID: 2140799619}
   formText: {fileID: 1665568937}
-  slimeIcon: {fileID: 1542581742}
+  scaleLabelText: {fileID: 0}
+  speedLabelText: {fileID: 0}
+  formIcon: {fileID: 1542581742}
+  wizardIconSprite: {fileID: 21300000, guid: d33f1b278a5199f479b4fd91e28336de, type: 3}
+  slimeIconSprite: {fileID: 21300000, guid: ae1ac594debd72f408f7e68cfc20cade, type: 3}
   fullScaleColor: {r: 0, g: 1, b: 0, a: 1}
   minScaleColor: {r: 1, g: 0, b: 0, a: 1}
-  speedBoostColor: {r: 0, g: 1, b: 1, a: 1}
-  wizardIcon: {fileID: 21300000, guid: d33f1b278a5199f479b4fd91e28336de, type: 3}
-  slimeIconSprite: {fileID: 21300000, guid: ae1ac594debd72f408f7e68cfc20cade, type: 3}
+  normalSpeedColor: {r: 1, g: 1, b: 1, a: 1}
+  boostedSpeedColor: {r: 0, g: 1, b: 1, a: 1}
+  slimeSpeedColor: {r: 0.5, g: 1, b: 0.5, a: 1}
+  wizardFormColor: {r: 0, g: 1, b: 1, a: 1}
+  slimeFormColor: {r: 0, g: 1, b: 0, a: 1}
   canvasGroup: {fileID: 1849653712}
-  showWhenWizard: 1
+  alwaysVisible: 1
   fillSmoothSpeed: 8
 --- !u!225 &1849653712
 CanvasGroup:
@@ -3515,7 +3522,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: 1.0x
+  m_text: 100%
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}

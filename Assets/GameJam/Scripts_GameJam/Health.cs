@@ -4,14 +4,15 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Health system with SlimeController integration.
+/// Health system with SlimeController and LaserBeamUltimate integration.
 /// When in slime form, taking damage triggers adaptive scaling (smaller but faster).
+/// Dealing damage charges the attacker's ultimate meter.
 /// 
 /// Features:
 /// - Network-synced health
 /// - Respawn system
 /// - SlimeController damage notification
-/// - Ultimate charge for attacker
+/// - LaserBeamUltimate charge for attacker
 /// </summary>
 public class Health : NetworkBehaviour
 {
@@ -41,6 +42,7 @@ public class Health : NetworkBehaviour
     private Collider2D col;
     private PlayerController controller;
     private SlimeController slimeController;
+    private LaserBeamUltimate laserUltimate;
     private ProceduralCharacterAnimator animator;
     private Canvas nameCanvas;
     private Rigidbody2D rb;
@@ -59,6 +61,7 @@ public class Health : NetworkBehaviour
         col = GetComponent<Collider2D>();
         controller = GetComponent<PlayerController>();
         slimeController = GetComponent<SlimeController>();
+        laserUltimate = GetComponent<LaserBeamUltimate>();
         animator = GetComponent<ProceduralCharacterAnimator>();
         nameCanvas = GetComponentInChildren<Canvas>();
         rb = GetComponent<Rigidbody2D>();
@@ -121,7 +124,7 @@ public class Health : NetworkBehaviour
             slimeController.OnDamageTaken(amount);
         }
 
-        // Award ultimate charge to attacker
+        // Award ultimate charge to attacker (using LaserBeamUltimate)
         AwardAttackerUltimate(attackerId, amount);
 
         // Check for death
@@ -147,11 +150,20 @@ public class Health : NetworkBehaviour
         if (!IsServer) return;
         if (attackerId == OwnerClientId) return; // Don't award for self-damage
         
-        // Find attacker's SlimeController and award ultimate charge
+        // Find attacker's LaserBeamUltimate and award charge
         if (NetworkManager.Singleton.ConnectedClients.TryGetValue(attackerId, out NetworkClient attackerClient))
         {
             if (attackerClient.PlayerObject != null)
             {
+                // Try LaserBeamUltimate first (new system)
+                LaserBeamUltimate attackerLaser = attackerClient.PlayerObject.GetComponent<LaserBeamUltimate>();
+                if (attackerLaser != null)
+                {
+                    attackerLaser.AddUltimateCharge(damageDealt);
+                    Debug.Log($"[Health] Awarded {damageDealt * 2} ultimate charge to player {attackerId}");
+                }
+                
+                // Also notify SlimeController if it exists (for backwards compatibility)
                 SlimeController attackerSlime = attackerClient.PlayerObject.GetComponent<SlimeController>();
                 if (attackerSlime != null)
                 {
@@ -295,7 +307,7 @@ public class Health : NetworkBehaviour
             nameCanvas.enabled = isActive;
         
         // Hide health bar when dead
-        if (healthBarFill != null)
+        if (healthBarFill != null && healthBarFill.transform.parent != null)
             healthBarFill.transform.parent.gameObject.SetActive(isActive);
     }
 

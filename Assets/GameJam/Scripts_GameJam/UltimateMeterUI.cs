@@ -5,6 +5,7 @@ using TMPro;
 
 /// <summary>
 /// UI component that displays the local player's ultimate meter.
+/// Works with LaserBeamUltimate component.
 /// Shows charge progress and ready state with visual feedback.
 /// 
 /// Place on a Canvas in the GameScene.
@@ -24,6 +25,7 @@ public class UltimateMeterUI : MonoBehaviour
     [Header("Visual Settings")]
     [SerializeField] private Color chargingColor = new Color(0.5f, 0.8f, 1f);
     [SerializeField] private Color readyColor = Color.yellow;
+    [SerializeField] private Color firingColor = Color.red;
     [SerializeField] private Color slimeChargingColor = new Color(0.3f, 1f, 0.3f);
     [SerializeField] private Color slimeReadyColor = new Color(0.5f, 1f, 0.5f);
     
@@ -34,17 +36,18 @@ public class UltimateMeterUI : MonoBehaviour
 
     [Header("Visibility")]
     [SerializeField] private CanvasGroup canvasGroup;
-    [SerializeField] private bool hideWhenWizard = false;
+    [SerializeField] private bool alwaysVisible = true;
 
     #endregion
 
     #region Private Fields
 
+    private LaserBeamUltimate localLaserUltimate;
     private SlimeController localSlimeController;
     private float currentFillAmount = 0f;
     private float targetFillAmount = 0f;
     private bool isReady = false;
-    private bool wasSlime = false;
+    private bool isFiring = false;
 
     #endregion
 
@@ -57,7 +60,7 @@ public class UltimateMeterUI : MonoBehaviour
             readyIndicator.SetActive(false);
         
         if (canvasGroup != null)
-            canvasGroup.alpha = hideWhenWizard ? 0f : 1f;
+            canvasGroup.alpha = alwaysVisible ? 1f : 0f;
         
         // Try to find local player
         StartCoroutine(FindLocalPlayerCoroutine());
@@ -87,29 +90,41 @@ public class UltimateMeterUI : MonoBehaviour
         {
             if (client.PlayerObject != null)
             {
+                localLaserUltimate = client.PlayerObject.GetComponent<LaserBeamUltimate>();
                 localSlimeController = client.PlayerObject.GetComponent<SlimeController>();
+                
+                if (localLaserUltimate != null)
+                {
+                    // Subscribe to changes
+                    localLaserUltimate.ultimateMeter.OnValueChanged += OnUltimateChanged;
+                    localLaserUltimate.isFiringLaser.OnValueChanged += OnFiringChanged;
+                    
+                    // Initial update
+                    UpdateUI(localLaserUltimate.UltimateCharge);
+                    
+                    Debug.Log("[UltimateMeterUI] Found local player's LaserBeamUltimate");
+                }
                 
                 if (localSlimeController != null)
                 {
-                    // Subscribe to changes
-                    localSlimeController.ultimateMeter.OnValueChanged += OnUltimateChanged;
                     localSlimeController.isSlimeForm.OnValueChanged += OnFormChanged;
-                    
-                    // Initial update
-                    UpdateUI(localSlimeController.UltimateCharge);
-                    UpdateVisibility(localSlimeController.IsSlime);
-                    
-                    Debug.Log("[UltimateMeterUI] Found local player's SlimeController");
                 }
+                
+                UpdateVisibility();
             }
         }
     }
 
     private void OnDestroy()
     {
+        if (localLaserUltimate != null)
+        {
+            localLaserUltimate.ultimateMeter.OnValueChanged -= OnUltimateChanged;
+            localLaserUltimate.isFiringLaser.OnValueChanged -= OnFiringChanged;
+        }
+        
         if (localSlimeController != null)
         {
-            localSlimeController.ultimateMeter.OnValueChanged -= OnUltimateChanged;
             localSlimeController.isSlimeForm.OnValueChanged -= OnFormChanged;
         }
     }
@@ -123,13 +138,19 @@ public class UltimateMeterUI : MonoBehaviour
             fillImage.fillAmount = currentFillAmount;
         
         // Pulse animation when ready
-        if (isReady)
+        if (isReady && !isFiring)
         {
             AnimateReady();
         }
+        
+        // Firing animation
+        if (isFiring)
+        {
+            AnimateFiring();
+        }
 
         // Retry finding player if not found yet
-        if (localSlimeController == null && Time.frameCount % 60 == 0)
+        if (localLaserUltimate == null && Time.frameCount % 60 == 0)
         {
             FindLocalPlayer();
         }
@@ -144,11 +165,22 @@ public class UltimateMeterUI : MonoBehaviour
         UpdateUI(newValue);
     }
 
+    private void OnFiringChanged(bool oldValue, bool newValue)
+    {
+        isFiring = newValue;
+        UpdateColors();
+        
+        if (newValue)
+        {
+            // Reset fill immediately when firing
+            currentFillAmount = 0f;
+            targetFillAmount = 0f;
+        }
+    }
+
     private void OnFormChanged(bool oldValue, bool newValue)
     {
-        UpdateVisibility(newValue);
-        UpdateColors(newValue);
-        wasSlime = newValue;
+        UpdateColors();
     }
 
     #endregion
@@ -160,13 +192,15 @@ public class UltimateMeterUI : MonoBehaviour
         targetFillAmount = chargePercent / 100f;
         bool nowReady = chargePercent >= 100f;
         
-        // Update text
+        // Update text (VALUE ONLY)
         if (percentText != null)
             percentText.text = $"{Mathf.FloorToInt(chargePercent)}%";
         
         if (statusText != null)
         {
-            if (nowReady)
+            if (isFiring)
+                statusText.text = "FIRING!";
+            else if (nowReady)
                 statusText.text = "READY! [Q]";
             else if (chargePercent > 0)
                 statusText.text = "Charging...";
@@ -180,32 +214,38 @@ public class UltimateMeterUI : MonoBehaviour
             isReady = nowReady;
             OnReadyStateChanged(isReady);
         }
+        
+        UpdateColors();
     }
 
-    private void UpdateVisibility(bool isSlime)
+    private void UpdateVisibility()
     {
         if (canvasGroup == null) return;
-        
-        if (hideWhenWizard)
-        {
-            canvasGroup.alpha = isSlime ? 1f : 0f;
-        }
-        else
-        {
-            canvasGroup.alpha = 1f;
-        }
+        canvasGroup.alpha = alwaysVisible ? 1f : 0f;
     }
 
-    private void UpdateColors(bool isSlime)
+    private void UpdateColors()
     {
+        bool isSlime = localSlimeController != null && localSlimeController.IsSlime;
+        
         Color charging = isSlime ? slimeChargingColor : chargingColor;
         Color ready = isSlime ? slimeReadyColor : readyColor;
         
         if (fillImage != null)
-            fillImage.color = isReady ? ready : charging;
+        {
+            if (isFiring)
+                fillImage.color = firingColor;
+            else if (isReady)
+                fillImage.color = ready;
+            else
+                fillImage.color = charging;
+        }
         
         if (glowImage != null)
+        {
             glowImage.color = ready;
+            glowImage.gameObject.SetActive(isReady && !isFiring);
+        }
     }
 
     private void OnReadyStateChanged(bool ready)
@@ -214,18 +254,12 @@ public class UltimateMeterUI : MonoBehaviour
         if (readyIndicator != null)
             readyIndicator.SetActive(ready);
         
-        // Update colors
-        bool isSlime = localSlimeController != null && localSlimeController.IsSlime;
-        Color readyCol = isSlime ? slimeReadyColor : readyColor;
-        Color chargingCol = isSlime ? slimeChargingColor : chargingColor;
-        
-        if (fillImage != null)
-            fillImage.color = ready ? readyCol : chargingCol;
+        UpdateColors();
         
         // Play sound or effect when becoming ready
         if (ready)
         {
-            Debug.Log("[UltimateMeterUI] Ultimate is READY!");
+            Debug.Log("[UltimateMeterUI] Ultimate is READY! Press Q to fire laser!");
         }
     }
 
@@ -244,6 +278,23 @@ public class UltimateMeterUI : MonoBehaviour
         if (fillImage != null)
         {
             float pulse = Mathf.Sin(Time.time * pulseSpeed * 0.5f) * 0.05f;
+            fillImage.transform.localScale = Vector3.one * (1f + pulse);
+        }
+    }
+
+    private void AnimateFiring()
+    {
+        // Flash effect while firing
+        if (fillImage != null)
+        {
+            float flash = Mathf.PingPong(Time.time * 10f, 1f);
+            fillImage.color = Color.Lerp(firingColor, Color.white, flash);
+        }
+        
+        // Scale pulse
+        if (fillImage != null)
+        {
+            float pulse = Mathf.Sin(Time.time * 20f) * 0.1f;
             fillImage.transform.localScale = Vector3.one * (1f + pulse);
         }
     }

@@ -107,7 +107,7 @@ SpriteRenderer:
   m_SortingLayerID: 0
   m_SortingLayer: 0
   m_SortingOrder: 0
-  m_Sprite: {fileID: 5302385323135332784, guid: dae03c0a5de82cb4f951461e7f5393dd, type: 3}
+  m_Sprite: {fileID: 8198504680035991130, guid: 622251c3e08e35149ab89ed9ded6923f, type: 3}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_FlipX: 0
   m_FlipY: 0
@@ -613,6 +613,7 @@ GameObject:
   - component: {fileID: 3214181975858721720}
   - component: {fileID: 7017673450245237943}
   - component: {fileID: 4364908587217946239}
+  - component: {fileID: -1483737551772118359}
   m_Layer: 0
   m_Name: Player
   m_TagString: Player
@@ -735,7 +736,7 @@ MonoBehaviour:
   cameraFollowTarget: {fileID: 0}
   cameraSearchTimeout: 5
   arrowSprite: {fileID: 21300000, guid: 03e55ad5c1ca60e46b45fb8db7e85cbd, type: 3}
-  aimIndicatorRadius: 1.1
+  aimIndicatorRadius: 1.15
   arrowScale: 0.69
   wizardArrowColor: {r: 0.15359731, g: 0.509434, b: 0, a: 1}
   slimeArrowColor: {r: 0, g: 1, b: 0.63603806, a: 1}
@@ -758,24 +759,29 @@ MonoBehaviour:
     m_InternalValue: 0
   isSlimeForm:
     m_InternalValue: 0
+  isFiringUltimate:
+    m_InternalValue: 0
   minScale: 0.3
   maxScale: 1
   scalePerDamage: 0.007
   maxSpeedMultiplier: 2
   minSpeedMultiplier: 1
-  ultimateChargePerDamage: 2
+  ultimateChargePerDamage: 1
   maxUltimateCharge: 100
-  ultimateAOEDamage: 50
-  ultimateAOERadius: 5
-  ultimateCooldown: 1
+  ultimateKey: 113
+  laserRange: 20
+  laserDuration: 0.5
+  laserWidth: 0.3
+  laserColor: {r: 1, g: 0, b: 0, a: 1}
+  laserCoreColor: {r: 1, g: 0.44968545, b: 0.44968545, a: 1}
   gloopPrefab: {fileID: 631105796896545203, guid: e751fcc783b687149b2840371e9f8871, type: 3}
   gloopSpeed: 7
   gloopDamage: 20
   transformVFX: {fileID: 0}
-  ultimateVFX: {fileID: 0}
   transformSound: {fileID: 0}
-  ultimateSound: {fileID: 0}
+  laserFireSound: {fileID: 0}
   visualTransform: {fileID: 6828734296932042643}
+  firePoint: {fileID: 8516783338779248797}
   playerController: {fileID: 2481530332923885334}
   animator: {fileID: 7640312092797741885}
 --- !u!114 &7640312092797741885
@@ -964,3 +970,36 @@ MonoBehaviour:
   normalHealthColor: {r: 0, g: 1, b: 0, a: 1}
   lowHealthColor: {r: 0, g: 0.42138356, b: 0, a: 1}
   lowHealthThreshold: 0.3
+--- !u!114 &-1483737551772118359
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8593513877603837951}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2edb9a3cd342d5e4b95549be1b00e879, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  ShowTopMostFoldoutHeaderGroup: 1
+  ultimateMeter:
+    m_InternalValue: 0
+  isFiringLaser:
+    m_InternalValue: 0
+  ultimateChargePerDamage: 2
+  maxUltimateCharge: 100
+  ultimateCooldown: 1
+  ultimateKey: 113
+  laserRange: 50
+  laserWidth: 0.5
+  laserDuration: 0.3
+  hitLayers:
+    serializedVersion: 2
+    m_Bits: 1
+  wizardLaserColor: {r: 0.5, g: 0.8, b: 1, a: 1}
+  slimeLaserColor: {r: 0.3, g: 1, b: 0.3, a: 1}
+  laserPrefab: {fileID: 0}
+  laserFireSound: {fileID: 0}
+  ultimateReadySound: {fileID: 0}
+  firePoint: {fileID: 8516783338779248797}
