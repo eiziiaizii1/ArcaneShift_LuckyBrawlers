@@ -42,7 +42,7 @@ GameObject:
   - component: {fileID: 5145274326745807584}
   - component: {fileID: 5089327335382372711}
   m_Layer: 0
-  m_Name: PlayerVisualSlime
+  m_Name: SlimeVisual
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -58,7 +58,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 5, y: 5, z: 1}
+  m_LocalScale: {x: 4.5, y: 4.5, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 6828734296932042643}
@@ -205,7 +205,7 @@ GameObject:
   - component: {fileID: 8743428556867716306}
   - component: {fileID: 7725925979084898949}
   m_Layer: 0
-  m_Name: PlayerVisualWizard
+  m_Name: WizardVisual
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -986,6 +986,8 @@ MonoBehaviour:
   ultimateMeter:
     m_InternalValue: 0
   isFiringLaser:
+    m_InternalValue: 0
+  isOnCooldown:
     m_InternalValue: 0
   ultimateChargePerDamage: 2
   maxUltimateCharge: 100

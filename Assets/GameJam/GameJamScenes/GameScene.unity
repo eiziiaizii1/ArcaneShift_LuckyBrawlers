@@ -1653,11 +1653,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   ShowTopMostFoldoutHeaderGroup: 1
-  timeBetweenEvents: 5
-  eventDuration: 20
+  timeBetweenEvents: 3
+  eventDuration: 10
   speedBoostWeight: 1
   reverseControlsWeight: 1
-  slimeShiftWeight: 1
+  slimeShiftWeight: 2
   sizeChangeWeight: 1
   minSizeMultiplier: 0.5
   maxSizeMultiplier: 1.5
@@ -3075,6 +3075,7 @@ MonoBehaviour:
   normalSpeedColor: {r: 1, g: 1, b: 1, a: 1}
   boostedSpeedColor: {r: 0, g: 1, b: 1, a: 1}
   slimeSpeedColor: {r: 0.5, g: 1, b: 0.5, a: 1}
+  slowedSpeedColor: {r: 1, g: 0, b: 0, a: 1}
   wizardFormColor: {r: 0, g: 1, b: 1, a: 1}
   slimeFormColor: {r: 0, g: 1, b: 0, a: 1}
   canvasGroup: {fileID: 1849653712}

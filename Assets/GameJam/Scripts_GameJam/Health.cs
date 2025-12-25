@@ -4,15 +4,16 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Health system with SlimeController and LaserBeamUltimate integration.
-/// When in slime form, taking damage triggers adaptive scaling (smaller but faster).
-/// Dealing damage charges the attacker's ultimate meter.
+/// Health system with proper visual state management.
 /// 
-/// Features:
-/// - Network-synced health
-/// - Respawn system
-/// - SlimeController damage notification
-/// - LaserBeamUltimate charge for attacker
+/// IMPORTANT: This script does NOT directly control wizard/slime visuals.
+/// Instead, it uses a master "isVisible" flag and lets ProceduralCharacterAnimator
+/// handle which specific visual (wizard vs slime) should be shown.
+/// 
+/// This prevents conflicts when:
+/// - Player dies as slime
+/// - Player respawns
+/// - SlimeShift event triggers again
 /// </summary>
 public class Health : NetworkBehaviour
 {
@@ -38,7 +39,6 @@ public class Health : NetworkBehaviour
 
     #region Private Fields
 
-    private SpriteRenderer spriteRenderer;
     private Collider2D col;
     private PlayerController controller;
     private SlimeController slimeController;
@@ -46,6 +46,10 @@ public class Health : NetworkBehaviour
     private ProceduralCharacterAnimator animator;
     private Canvas nameCanvas;
     private Rigidbody2D rb;
+    private Canvas healthBarCanvas;
+
+    // Track visibility state
+    private bool isPlayerVisible = true;
 
     #endregion
 
@@ -53,18 +57,19 @@ public class Health : NetworkBehaviour
 
     private void Awake()
     {
-        // Find components - check both parent and children
-        spriteRenderer = GetComponent<SpriteRenderer>();
-        if (spriteRenderer == null)
-            spriteRenderer = GetComponentInChildren<SpriteRenderer>();
-        
         col = GetComponent<Collider2D>();
         controller = GetComponent<PlayerController>();
         slimeController = GetComponent<SlimeController>();
         laserUltimate = GetComponent<LaserBeamUltimate>();
         animator = GetComponent<ProceduralCharacterAnimator>();
-        nameCanvas = GetComponentInChildren<Canvas>();
         rb = GetComponent<Rigidbody2D>();
+        
+        nameCanvas = GetComponentInChildren<Canvas>();
+        
+        if (healthBarFill != null)
+        {
+            healthBarCanvas = healthBarFill.GetComponentInParent<Canvas>();
+        }
     }
 
     public override void OnNetworkSpawn()
@@ -81,7 +86,6 @@ public class Health : NetworkBehaviour
     {
         UpdateHealthBar(newHealth);
         
-        // Trigger hit reaction on animator
         if (newHealth < oldHealth && animator != null)
         {
             animator.TriggerHitReaction();
@@ -95,7 +99,6 @@ public class Health : NetworkBehaviour
             float healthPercent = (float)current / maxHealth;
             healthBarFill.fillAmount = healthPercent;
             
-            // Color based on health percentage
             healthBarFill.color = healthPercent <= lowHealthThreshold 
                 ? lowHealthColor 
                 : Color.Lerp(lowHealthColor, normalHealthColor, (healthPercent - lowHealthThreshold) / (1f - lowHealthThreshold));
@@ -106,40 +109,30 @@ public class Health : NetworkBehaviour
 
     #region Damage System
 
-    /// <summary>
-    /// RPC to take damage. Can be called by anyone (projectiles, etc.)
-    /// </summary>
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     public void TakeDamageServerRpc(int amount, ulong attackerId)
     {
         if (!IsServer) return;
 
-        // Apply damage
         int previousHealth = currentHealth.Value;
         currentHealth.Value -= amount;
 
-        // Notify SlimeController for adaptive scaling
         if (slimeController != null && slimeController.IsSlime)
         {
             slimeController.OnDamageTaken(amount);
         }
 
-        // Award ultimate charge to attacker (using LaserBeamUltimate)
         AwardAttackerUltimate(attackerId, amount);
 
-        // Check for death
         if (currentHealth.Value <= 0 && previousHealth > 0)
         {
             currentHealth.Value = 0;
             HandleDeath(attackerId);
         }
 
-        Debug.Log($"[Health] Player {OwnerClientId} took {amount} damage from {attackerId}. Health: {currentHealth.Value}/{maxHealth}");
+        Debug.Log($"[Health] Player {OwnerClientId} took {amount} damage. Health: {currentHealth.Value}/{maxHealth}");
     }
 
-    /// <summary>
-    /// Convenience method that calls the ServerRpc
-    /// </summary>
     public void TakeDamage(int amount, ulong attackerId)
     {
         TakeDamageServerRpc(amount, attackerId);
@@ -148,22 +141,18 @@ public class Health : NetworkBehaviour
     private void AwardAttackerUltimate(ulong attackerId, int damageDealt)
     {
         if (!IsServer) return;
-        if (attackerId == OwnerClientId) return; // Don't award for self-damage
+        if (attackerId == OwnerClientId) return;
         
-        // Find attacker's LaserBeamUltimate and award charge
         if (NetworkManager.Singleton.ConnectedClients.TryGetValue(attackerId, out NetworkClient attackerClient))
         {
             if (attackerClient.PlayerObject != null)
             {
-                // Try LaserBeamUltimate first (new system)
                 LaserBeamUltimate attackerLaser = attackerClient.PlayerObject.GetComponent<LaserBeamUltimate>();
                 if (attackerLaser != null)
                 {
                     attackerLaser.AddUltimateCharge(damageDealt);
-                    Debug.Log($"[Health] Awarded {damageDealt * 2} ultimate charge to player {attackerId}");
                 }
                 
-                // Also notify SlimeController if it exists (for backwards compatibility)
                 SlimeController attackerSlime = attackerClient.PlayerObject.GetComponent<SlimeController>();
                 if (attackerSlime != null)
                 {
@@ -179,19 +168,16 @@ public class Health : NetworkBehaviour
 
     private void HandleDeath(ulong attackerId)
     {
-        // Award score to attacker
         if (attackerId != OwnerClientId)
         {
             AwardKillScore(attackerId);
         }
 
-        // Start respawn sequence
         StartCoroutine(RespawnRoutine());
     }
 
     private void AwardKillScore(ulong attackerId)
     {
-        // Find attacker and increment their score
         if (NetworkManager.Singleton.ConnectedClients.TryGetValue(attackerId, out NetworkClient attackerClient))
         {
             if (attackerClient.PlayerObject != null)
@@ -201,23 +187,22 @@ public class Health : NetworkBehaviour
                 {
                     attackerController.score.Value += 1;
                     
-                    // Update leaderboard
                     LeaderboardManager lb = Object.FindFirstObjectByType<LeaderboardManager>();
                     if (lb != null)
                     {
-                        lb.UpdateScore(attackerId, 100); // 100 points per kill
+                        lb.UpdateScore(attackerId, 100);
                     }
                 }
             }
         }
         
-        Debug.Log($"[Health] Player {attackerId} got a kill on player {OwnerClientId}");
+        Debug.Log($"[Health] Player {attackerId} killed player {OwnerClientId}");
     }
 
     private IEnumerator RespawnRoutine()
     {
-        // 1. Hide player
-        SetPlayerState(false);
+        // 1. Hide player completely
+        SetPlayerVisible(false);
 
         // 2. Wait for respawn delay
         yield return new WaitForSeconds(respawnDelay);
@@ -230,16 +215,17 @@ public class Health : NetworkBehaviour
             TeleportClientRpc(newPos);
         }
 
-        // 4. Reset health and show player
+        // 4. Reset health
         currentHealth.Value = maxHealth;
         
-        // 5. Reset slime scale (if in slime form)
+        // 5. Reset slime scale
         if (slimeController != null)
         {
             slimeController.ResetState();
         }
         
-        SetPlayerState(true);
+        // 6. Show player again - this will trigger proper visual state
+        SetPlayerVisible(true);
         
         Debug.Log($"[Health] Player {OwnerClientId} respawned");
     }
@@ -252,7 +238,6 @@ public class Health : NetworkBehaviour
 
         if (IsOwner)
         {
-            // Disable physics simulation during teleport
             if (rb != null) 
                 rb.simulated = false;
 
@@ -266,7 +251,6 @@ public class Health : NetworkBehaviour
             return;
         }
 
-        // Non-owners also update position immediately
         transform.position = newPos;
         if (rb != null) 
             rb.position = newPos;
@@ -274,67 +258,121 @@ public class Health : NetworkBehaviour
 
     #endregion
 
-    #region Player State Management
+    #region Visibility Management
 
-    private void SetPlayerState(bool isActive)
+    /// <summary>
+    /// Master visibility control. When false, EVERYTHING is hidden.
+    /// When true, the animator decides which visual (wizard/slime) to show.
+    /// </summary>
+    private void SetPlayerVisible(bool visible)
     {
-        ToggleComponents(isActive);
-        SetPlayerStateClientRpc(isActive);
+        isPlayerVisible = visible;
+        
+        // Apply on server
+        ApplyVisibility(visible);
+        
+        // Broadcast to clients
+        SetPlayerVisibleClientRpc(visible);
     }
 
     [ClientRpc]
-    private void SetPlayerStateClientRpc(bool isActive)
+    private void SetPlayerVisibleClientRpc(bool visible)
     {
-        if (!IsServer) 
-            ToggleComponents(isActive);
+        if (!IsServer)
+        {
+            ApplyVisibility(visible);
+        }
     }
 
-    private void ToggleComponents(bool isActive)
+    private void ApplyVisibility(bool visible)
     {
-        if (spriteRenderer != null) 
-            spriteRenderer.enabled = isActive;
+        isPlayerVisible = visible;
         
-        if (col != null) 
-            col.enabled = isActive;
-        
-        if (controller != null) 
+        // === KEY FIX: Let the animator handle visual switching ===
+        if (animator != null)
         {
-            controller.enabled = isActive;
-            controller.SetArrowVisibility(isActive);
+            animator.SetMasterVisibility(visible);
+        }
+        else
+        {
+            // Fallback: No animator, try to handle visuals directly
+            FallbackVisibilityControl(visible);
         }
         
-        if (nameCanvas != null) 
-            nameCanvas.enabled = isActive;
+        // Collider
+        if (col != null) 
+            col.enabled = visible;
         
-        // Hide health bar when dead
+        // Player controller + aim arrow
+        if (controller != null) 
+        {
+            controller.enabled = visible;
+            controller.SetArrowVisibility(visible);
+        }
+        
+        // Name canvas
+        if (nameCanvas != null) 
+            nameCanvas.enabled = visible;
+        
+        // Health bar
         if (healthBarFill != null && healthBarFill.transform.parent != null)
-            healthBarFill.transform.parent.gameObject.SetActive(isActive);
+        {
+            healthBarFill.transform.parent.gameObject.SetActive(visible);
+        }
+        
+        Debug.Log($"[Health] ApplyVisibility: visible={visible}");
+    }
+
+    /// <summary>
+    /// Fallback if no ProceduralCharacterAnimator exists
+    /// </summary>
+    private void FallbackVisibilityControl(bool visible)
+    {
+        // Try to find and control visuals directly
+        Transform wizardVisual = transform.Find("WizardVisual");
+        Transform slimeVisual = transform.Find("SlimeVisual");
+        
+        bool isSlime = slimeController != null && slimeController.IsSlime;
+        
+        if (wizardVisual != null)
+        {
+            wizardVisual.gameObject.SetActive(visible && !isSlime);
+        }
+        
+        if (slimeVisual != null)
+        {
+            slimeVisual.gameObject.SetActive(visible && isSlime);
+        }
+        
+        // Legacy single sprite
+        SpriteRenderer sr = GetComponent<SpriteRenderer>();
+        if (sr != null && wizardVisual == null && slimeVisual == null)
+        {
+            sr.enabled = visible;
+        }
     }
 
     #endregion
 
-    #region Healing
+    #region Public API
 
-    /// <summary>
-    /// Server-only: Heal the player
-    /// </summary>
     public void Heal(int amount)
     {
         if (!IsServer) return;
-        
         currentHealth.Value = Mathf.Min(maxHealth, currentHealth.Value + amount);
-        Debug.Log($"[Health] Player {OwnerClientId} healed for {amount}. Health: {currentHealth.Value}/{maxHealth}");
     }
 
-    /// <summary>
-    /// Server-only: Set health to max
-    /// </summary>
     public void FullHeal()
     {
         if (!IsServer) return;
-        
         currentHealth.Value = maxHealth;
     }
+
+    public int MaxHealth => maxHealth;
+    public int CurrentHealth => currentHealth.Value;
+    public float HealthPercent => (float)currentHealth.Value / maxHealth;
+    public bool IsDead => currentHealth.Value <= 0;
+    public bool IsVisible => isPlayerVisible;
 
     #endregion
 
@@ -345,15 +383,6 @@ public class Health : NetworkBehaviour
         currentHealth.OnValueChanged -= OnHealthChanged;
         base.OnDestroy();
     }
-
-    #endregion
-
-    #region Public Properties
-
-    public int MaxHealth => maxHealth;
-    public int CurrentHealth => currentHealth.Value;
-    public float HealthPercent => (float)currentHealth.Value / maxHealth;
-    public bool IsDead => currentHealth.Value <= 0;
 
     #endregion
 }
