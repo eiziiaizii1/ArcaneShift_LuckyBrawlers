@@ -6,6 +6,7 @@ TagManager:
   tags:
   - Walll
   - Wall
+  - Coin
   layers:
   - Default
   - TransparentFX
