@@ -35,6 +35,11 @@ public class Health : NetworkBehaviour
     [SerializeField] private Color lowHealthColor = Color.red;
     [SerializeField] private float lowHealthThreshold = 0.3f;
 
+    [Header("Audio")]
+    [SerializeField] private AudioClip deathSound;
+    [Range(0f, 1f)]
+    [SerializeField] private float deathSoundVolume = 1f;
+
     #endregion
 
     #region Private Fields
@@ -47,6 +52,7 @@ public class Health : NetworkBehaviour
     private Canvas nameCanvas;
     private Rigidbody2D rb;
     private Canvas healthBarCanvas;
+    private AudioSource audioSource;
 
     // Track visibility state
     private bool isPlayerVisible = true;
@@ -63,6 +69,8 @@ public class Health : NetworkBehaviour
         laserUltimate = GetComponent<LaserBeamUltimate>();
         animator = GetComponent<ProceduralCharacterAnimator>();
         rb = GetComponent<Rigidbody2D>();
+        audioSource = GetComponent<AudioSource>();
+        if (audioSource == null) audioSource = gameObject.AddComponent<AudioSource>();
         
         nameCanvas = GetComponentInChildren<Canvas>();
         
@@ -173,6 +181,7 @@ public class Health : NetworkBehaviour
             AwardKillScore(attackerId);
         }
 
+        PlayDeathSoundClientRpc();
         StartCoroutine(RespawnRoutine());
     }
 
@@ -228,6 +237,13 @@ public class Health : NetworkBehaviour
         SetPlayerVisible(true);
         
         Debug.Log($"[Health] Player {OwnerClientId} respawned");
+    }
+
+    [ClientRpc]
+    private void PlayDeathSoundClientRpc()
+    {
+        if (deathSound == null || audioSource == null) return;
+        audioSource.PlayOneShot(deathSound, deathSoundVolume);
     }
 
     [ClientRpc]

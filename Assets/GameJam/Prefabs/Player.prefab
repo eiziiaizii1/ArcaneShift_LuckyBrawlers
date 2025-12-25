@@ -733,6 +733,7 @@ MonoBehaviour:
   firePoint: {fileID: 8516783338779248797}
   fireRate: 0.5
   fireballBaseSpeed: 10
+  fireballBaseDamage: 25
   sceneCamera: {fileID: 0}
   cameraFollowTarget: {fileID: 0}
   cameraSearchTimeout: 5
@@ -741,6 +742,9 @@ MonoBehaviour:
   arrowScale: 0.69
   wizardArrowColor: {r: 0.15359731, g: 0.509434, b: 0, a: 1}
   slimeArrowColor: {r: 0, g: 1, b: 0.63603806, a: 1}
+  fireballWhooshSound: {fileID: 8300000, guid: ddbcf61c4988ff243af7a80c14028a88, type: 3}
+  gloopWhooshSound: {fileID: 8300000, guid: ed7bb03d30a7c814cbca52a64e17b214, type: 3}
+  fireballWhooshVolume: 1
 --- !u!114 &8497800046484309242
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -758,18 +762,21 @@ MonoBehaviour:
     m_InternalValue: 1
   isSlimeForm:
     m_InternalValue: 0
+  slimeVisual: {fileID: 0}
+  boxCollider: {fileID: 0}
   minScale: 0.3
   maxScale: 1
   scalePerDamage: 0.007
-  maxSpeedMultiplier: 2
-  minSpeedMultiplier: 1
+  scaleSpeed: 10
+  speedAtMinScale: 2
+  speedAtMaxScale: 1
+  damageAtMinScale: 0.4
+  damageAtMaxScale: 1
+  gloopBaseDamage: 25
   gloopPrefab: {fileID: 631105796896545203, guid: e751fcc783b687149b2840371e9f8871, type: 3}
   gloopSpeed: 7
-  gloopDamage: 20
   transformVFX: {fileID: 0}
   transformSound: {fileID: 0}
-  animator: {fileID: 7640312092797741885}
-  sizeChangeHandler: {fileID: 0}
 --- !u!114 &7640312092797741885
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -956,6 +963,8 @@ MonoBehaviour:
   normalHealthColor: {r: 0, g: 1, b: 0, a: 1}
   lowHealthColor: {r: 0, g: 0.42138356, b: 0, a: 1}
   lowHealthThreshold: 0.3
+  deathSound: {fileID: 8300000, guid: edf77a3065c85144eb69d2598a7320c3, type: 3}
+  deathSoundVolume: 1
 --- !u!114 &-1483737551772118359
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1008,15 +1017,10 @@ MonoBehaviour:
   slimeVisual: {fileID: 5145274326745807584}
   mainCollider: {fileID: 3214181975858721720}
   wizardVisualScaleMultiplier: 1
-  wizardVisualScaleOffset: 0
   wizardColliderScaleMultiplier: 0.95
   slimeVisualScaleMultiplier: 1.1
-  slimeVisualScaleOffset: 0
   slimeColliderScaleMultiplier: 0.85
   minScale: 0.3
   maxScale: 2.5
   scaleTransitionSpeed: 8
-  baseBoxColliderSize: {x: 0, y: 0}
-  baseCircleColliderRadius: 0
-  baseCapsuleColliderSize: {x: 0, y: 0}
   showDebugInfo: 1
