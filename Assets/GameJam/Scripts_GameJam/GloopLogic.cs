@@ -3,10 +3,15 @@ using UnityEngine;
 
 /// <summary>
 /// GloopLogic handles the Slime's unique projectile.
-/// Similar to FireballLogic but with:
-/// - Slower speed
-/// - Different visual (handled by prefab)
-/// - Potential for unique effects (slowdown on hit, etc.)
+/// 
+/// KEY FEATURE: Damage is scaled based on the shooter's slime size!
+/// - Large slime (1.0 scale) = Full damage
+/// - Small slime (0.3 scale) = Reduced damage (40% by default)
+/// 
+/// The damage is set by PlayerController when spawning the projectile,
+/// which gets the scaled value from SlimeController.GetProjectileSettings().
+/// 
+/// Also applies a slow debuff on hit.
 /// 
 /// Attach to Gloop prefab with NetworkObject, Rigidbody2D, and Collider2D.
 /// </summary>
@@ -14,10 +19,10 @@ public class GloopLogic : NetworkBehaviour
 {
     [Header("Projectile Settings")]
     [SerializeField] private float speed = 7f;
-    [SerializeField] private int damage = 20;
+    [SerializeField] private int damage = 20; // This gets overwritten by SetDamage()
     [SerializeField] private float lifetime = 4f;
     
-    [Header("Unique Effects")]
+    [Header("Slow Effect Settings")]
     [Tooltip("Duration of slow effect applied to hit targets")]
     [SerializeField] private float slowDuration = 1.5f;
     
@@ -31,6 +36,9 @@ public class GloopLogic : NetworkBehaviour
     private Rigidbody2D rb;
     private SpriteRenderer spriteRenderer;
     private bool hasHit = false;
+    
+    // Track the scaled damage for debugging
+    private int originalDamage;
 
     private void Awake()
     {
@@ -39,10 +47,13 @@ public class GloopLogic : NetworkBehaviour
         
         if (trail == null)
             trail = GetComponent<TrailRenderer>();
+        
+        originalDamage = damage;
     }
 
     /// <summary>
-    /// Set the speed of the gloop projectile
+    /// Set the speed of the gloop projectile.
+    /// Called by PlayerController after spawning.
     /// </summary>
     public void SetSpeed(float newSpeed)
     {
@@ -54,11 +65,14 @@ public class GloopLogic : NetworkBehaviour
     }
 
     /// <summary>
-    /// Set the damage of the gloop projectile
+    /// Set the damage of the gloop projectile.
+    /// Called by PlayerController with the SCALED damage from SlimeController.
+    /// This is how the "smaller = weaker" mechanic is applied.
     /// </summary>
     public void SetDamage(int newDamage)
     {
         damage = newDamage;
+        Debug.Log($"[GloopLogic] Damage set to {damage} (scaled from base)");
     }
 
     public override void OnNetworkSpawn()
@@ -95,8 +109,10 @@ public class GloopLogic : NetworkBehaviour
         {
             hasHit = true;
             
-            // Deal damage
+            // Deal SCALED damage (set by PlayerController from SlimeController)
             healthScript.TakeDamage(damage, OwnerClientId);
+            
+            Debug.Log($"[GloopLogic] Hit for {damage} damage");
             
             // Award ultimate charge to shooter
             AwardUltimateCharge(damage);
@@ -105,7 +121,7 @@ public class GloopLogic : NetworkBehaviour
             ApplySlowEffect(other.gameObject);
             
             // Spawn hit effect and destroy
-            SpawnHitEffectClientRpc(transform.position);
+            SpawnHitEffectClientRpc(transform.position, damage);
             
             // Despawn network object
             GetComponent<NetworkObject>().Despawn();
@@ -113,7 +129,7 @@ public class GloopLogic : NetworkBehaviour
         else if (other.CompareTag("Wall") || other.CompareTag("Obstacle"))
         {
             hasHit = true;
-            SpawnHitEffectClientRpc(transform.position);
+            SpawnHitEffectClientRpc(transform.position, 0);
             GetComponent<NetworkObject>().Despawn();
         }
     }
@@ -141,11 +157,10 @@ public class GloopLogic : NetworkBehaviour
         if (targetSlime != null)
         {
             // The target has a SlimeController - they can handle the slow
-            // For now, we'll just log it
             Debug.Log($"[GloopLogic] Applied slow to player {targetSlime.OwnerClientId}");
         }
         
-        // Alternative: Add a temporary slow debuff component
+        // Add a temporary slow debuff component
         SlowDebuff existingDebuff = target.GetComponent<SlowDebuff>();
         if (existingDebuff != null)
         {
@@ -159,13 +174,16 @@ public class GloopLogic : NetworkBehaviour
     }
 
     [ClientRpc]
-    private void SpawnHitEffectClientRpc(Vector3 position)
+    private void SpawnHitEffectClientRpc(Vector3 position, int damageDealt)
     {
         if (hitVFX != null)
         {
             GameObject vfx = Instantiate(hitVFX, position, Quaternion.identity);
             Destroy(vfx, 1f);
         }
+        
+        // Optional: Could scale the VFX based on damage dealt
+        // Lower damage = smaller effect to show the weaker hit
     }
 
     private void OnDestroy()
@@ -176,6 +194,15 @@ public class GloopLogic : NetworkBehaviour
             trail.emitting = false;
         }
     }
+
+    #region Public Properties
+    
+    /// <summary>
+    /// Current damage this projectile will deal
+    /// </summary>
+    public int CurrentDamage => damage;
+    
+    #endregion
 }
 
 /// <summary>
@@ -188,7 +215,6 @@ public class SlowDebuff : MonoBehaviour
     private float multiplier;
     private float timer;
     private PlayerController playerController;
-    private float originalSpeedMultiplier = 1f;
     private bool initialized = false;
 
     public void Initialize(float duration, float multiplier)
@@ -238,5 +264,10 @@ public class SlowDebuff : MonoBehaviour
     /// <summary>
     /// Check if the debuff is active
     /// </summary>
-    public bool IsActive => timer > 0;
+    public bool IsActive => initialized && timer > 0;
+
+    /// <summary>
+    /// Time remaining on the debuff
+    /// </summary>
+    public float TimeRemaining => timer;
 }

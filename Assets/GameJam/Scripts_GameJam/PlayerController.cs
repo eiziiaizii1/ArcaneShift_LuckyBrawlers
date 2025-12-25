@@ -10,6 +10,7 @@ using Unity.Cinemachine;
 /// Features:
 /// - Form-aware projectiles (Fireball vs Gloop)
 /// - Adaptive speed from SlimeController
+/// - SCALED DAMAGE for Gloop based on slime size (smaller = weaker)
 /// - Lucky Box event integration
 /// - Slow debuff handling
 /// </summary>
@@ -27,7 +28,8 @@ public class PlayerController : NetworkBehaviour
     [SerializeField] private GameObject fireballPrefab; 
     [SerializeField] private Transform firePoint;
     [SerializeField] private float fireRate = 0.5f;
-    [SerializeField] private float fireballBaseSpeed = 10f; 
+    [SerializeField] private float fireballBaseSpeed = 10f;
+    [SerializeField] private int fireballBaseDamage = 25;
     private float nextFireTime = 0f;
 
     [Header("Camera Settings")]
@@ -296,13 +298,16 @@ public class PlayerController : NetworkBehaviour
         // Determine projectile settings based on form
         GameObject projectilePrefab = fireballPrefab;
         float projectileSpeed = fireballBaseSpeed;
+        int projectileDamage = fireballBaseDamage;
         
         // Check if we should use gloop (slime form)
         if (slimeController != null && slimeController.ShouldUseGloop())
         {
-            var (gloopPrefab, gloopSpeed, _) = slimeController.GetProjectileSettings(fireballPrefab, fireballBaseSpeed);
+            // Get settings INCLUDING SCALED DAMAGE from SlimeController
+            var (gloopPrefab, gloopSpeed, gloopDamage) = slimeController.GetProjectileSettings(fireballPrefab, fireballBaseSpeed);
             projectilePrefab = gloopPrefab;
             projectileSpeed = gloopSpeed;
+            projectileDamage = gloopDamage; // This is already scaled based on slime size!
         }
 
         // Apply Lucky Box speed boost to projectiles too
@@ -311,47 +316,54 @@ public class PlayerController : NetworkBehaviour
             projectileSpeed *= speedBoostMultiplier;
         }
 
-        // Fire the projectile
+        // Fire the projectile with scaled damage
         Vector3 spawnPos = aimArrowInstance.transform.position;
         Quaternion spawnRot = aimArrowInstance.transform.rotation;
         
-        ShootServerRpc(spawnPos, spawnRot, projectileSpeed);
+        ShootServerRpc(spawnPos, spawnRot, projectileSpeed, projectileDamage);
         nextFireTime = Time.time + fireRate;
     }
 
     [ServerRpc]
-    private void ShootServerRpc(Vector3 position, Quaternion rotation, float speed, ServerRpcParams rpcParams = default)
+    private void ShootServerRpc(Vector3 position, Quaternion rotation, float speed, int damage, ServerRpcParams rpcParams = default)
     {
         ulong shooterId = rpcParams.Receive.SenderClientId;
         
         // Determine which prefab to use based on the shooter's form
         GameObject prefabToUse = fireballPrefab;
         SlimeController shooterSlime = null;
+        int finalDamage = damage;
         
         if (NetworkManager.Singleton.ConnectedClients.TryGetValue(shooterId, out NetworkClient client))
         {
             shooterSlime = client.PlayerObject?.GetComponent<SlimeController>();
             if (shooterSlime != null && shooterSlime.ShouldUseGloop())
             {
-                var (gloopPrefab, _, _) = shooterSlime.GetProjectileSettings(fireballPrefab, fireballBaseSpeed);
+                var (gloopPrefab, _, scaledDamage) = shooterSlime.GetProjectileSettings(fireballPrefab, fireballBaseSpeed);
                 prefabToUse = gloopPrefab;
+                finalDamage = scaledDamage; // Use the SERVER's calculated scaled damage for security
             }
         }
 
         // Spawn the projectile
         GameObject projectile = Instantiate(prefabToUse, position, rotation);
         
-        // Configure projectile speed
+        // Configure projectile - FIREBALL
         var fireballLogic = projectile.GetComponent<FireballLogic>();
         if (fireballLogic != null)
         {
             fireballLogic.SetSpeed(speed);
+            // Fireball damage is fixed, doesn't scale
         }
         
+        // Configure projectile - GLOOP (with scaled damage!)
         var gloopLogic = projectile.GetComponent<GloopLogic>();
         if (gloopLogic != null)
         {
             gloopLogic.SetSpeed(speed);
+            gloopLogic.SetDamage(finalDamage); // Pass the scaled damage!
+            
+            Debug.Log($"[PlayerController] Spawned Gloop with {finalDamage} damage (Scale: {shooterSlime?.CurrentScale:F2})");
         }
 
         // Spawn with ownership

@@ -614,6 +614,7 @@ GameObject:
   - component: {fileID: 7017673450245237943}
   - component: {fileID: 4364908587217946239}
   - component: {fileID: -1483737551772118359}
+  - component: {fileID: -3134435573903392294}
   m_Layer: 0
   m_Name: Player
   m_TagString: Player
@@ -755,35 +756,20 @@ MonoBehaviour:
   ShowTopMostFoldoutHeaderGroup: 1
   currentScale:
     m_InternalValue: 1
-  ultimateMeter:
-    m_InternalValue: 0
   isSlimeForm:
-    m_InternalValue: 0
-  isFiringUltimate:
     m_InternalValue: 0
   minScale: 0.3
   maxScale: 1
   scalePerDamage: 0.007
   maxSpeedMultiplier: 2
   minSpeedMultiplier: 1
-  ultimateChargePerDamage: 1
-  maxUltimateCharge: 100
-  ultimateKey: 113
-  laserRange: 20
-  laserDuration: 0.5
-  laserWidth: 0.3
-  laserColor: {r: 1, g: 0, b: 0, a: 1}
-  laserCoreColor: {r: 1, g: 0.44968545, b: 0.44968545, a: 1}
   gloopPrefab: {fileID: 631105796896545203, guid: e751fcc783b687149b2840371e9f8871, type: 3}
   gloopSpeed: 7
   gloopDamage: 20
   transformVFX: {fileID: 0}
   transformSound: {fileID: 0}
-  laserFireSound: {fileID: 0}
-  visualTransform: {fileID: 6828734296932042643}
-  firePoint: {fileID: 8516783338779248797}
-  playerController: {fileID: 2481530332923885334}
   animator: {fileID: 7640312092797741885}
+  sizeChangeHandler: {fileID: 0}
 --- !u!114 &7640312092797741885
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1005,3 +991,32 @@ MonoBehaviour:
   laserFireSound: {fileID: 0}
   ultimateReadySound: {fileID: 0}
   firePoint: {fileID: 8516783338779248797}
+--- !u!114 &-3134435573903392294
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8593513877603837951}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9ed0d84628501ee4a927c5771b0d1606, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  ShowTopMostFoldoutHeaderGroup: 1
+  wizardVisual: {fileID: 8743428556867716306}
+  slimeVisual: {fileID: 5145274326745807584}
+  mainCollider: {fileID: 3214181975858721720}
+  wizardVisualScaleMultiplier: 1
+  wizardVisualScaleOffset: 0
+  wizardColliderScaleMultiplier: 0.95
+  slimeVisualScaleMultiplier: 1.1
+  slimeVisualScaleOffset: 0
+  slimeColliderScaleMultiplier: 0.85
+  minScale: 0.3
+  maxScale: 2.5
+  scaleTransitionSpeed: 8
+  baseBoxColliderSize: {x: 0, y: 0}
+  baseCircleColliderRadius: 0
+  baseCapsuleColliderSize: {x: 0, y: 0}
+  showDebugInfo: 1

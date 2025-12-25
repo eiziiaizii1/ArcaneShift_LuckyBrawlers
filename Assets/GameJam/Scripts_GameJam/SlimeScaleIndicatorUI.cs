@@ -4,14 +4,16 @@ using UnityEngine.UI;
 using TMPro;
 
 /// <summary>
-/// UI component that displays the local player's scale and speed status.
+/// UI component that displays the local player's scale, speed, and damage status.
 /// 
 /// Updated features:
 /// - Shows speed modifiers for BOTH Wizard and Slime forms
+/// - Shows DAMAGE multiplier for Slime form (smaller = weaker)
 /// - LuckyBox speed boost is reflected in Wizard form
 /// - Clean text formatting (just values, no prefixes)
-/// - Adaptive scaling speed for Slime form
-/// - Speed bar: 1.0x = 50% fill, 2.0x = 100% fill, 0.5x = 25% fill
+/// - Adaptive scaling for Slime form
+/// - Speed bar: 1.0x = 50% fill, 2.0x = 100% fill
+/// - Damage bar: 1.0x = 100% fill, 0.4x = 40% fill
 /// 
 /// Place on a Canvas in the GameScene.
 /// </summary>
@@ -22,6 +24,7 @@ public class SlimeScaleIndicatorUI : MonoBehaviour
     [Header("UI References - Fill Bars")]
     [SerializeField] private Image scaleFillImage;
     [SerializeField] private Image speedFillImage;
+    [SerializeField] private Image damageFillImage; // NEW: Damage bar
     
     [Header("UI References - Text (Value Only)")]
     [Tooltip("Shows scale value like '100%' or '45%'")]
@@ -29,6 +32,9 @@ public class SlimeScaleIndicatorUI : MonoBehaviour
     
     [Tooltip("Shows speed value like '1.00x' or '2.00x'")]
     [SerializeField] private TextMeshProUGUI speedValueText;
+    
+    [Tooltip("Shows damage value like '1.00x' or '0.40x'")]
+    [SerializeField] private TextMeshProUGUI damageValueText; // NEW: Damage text
     
     [Tooltip("Shows current form like 'WIZARD' or 'SLIME'")]
     [SerializeField] private TextMeshProUGUI formText;
@@ -39,6 +45,9 @@ public class SlimeScaleIndicatorUI : MonoBehaviour
     
     [Tooltip("Static label showing 'Speed' - leave empty if not using")]
     [SerializeField] private TextMeshProUGUI speedLabelText;
+    
+    [Tooltip("Static label showing 'Damage' - leave empty if not using")]
+    [SerializeField] private TextMeshProUGUI damageLabelText; // NEW: Damage label
     
     [Header("UI References - Icon")]
     [SerializeField] private Image formIcon;
@@ -55,6 +64,11 @@ public class SlimeScaleIndicatorUI : MonoBehaviour
     [SerializeField] private Color slimeSpeedColor = new Color(0.5f, 1f, 0.5f);
     [SerializeField] private Color slowedSpeedColor = Color.red;
     
+    [Header("Visual Settings - Damage Bar")]
+    [SerializeField] private Color fullDamageColor = new Color(1f, 0.5f, 0f); // Orange
+    [SerializeField] private Color lowDamageColor = new Color(0.5f, 0.25f, 0f); // Dark orange
+    [SerializeField] private Color wizardDamageColor = Color.yellow;
+    
     [Header("Visual Settings - Form")]
     [SerializeField] private Color wizardFormColor = Color.cyan;
     [SerializeField] private Color slimeFormColor = Color.green;
@@ -62,6 +76,7 @@ public class SlimeScaleIndicatorUI : MonoBehaviour
     [Header("Visibility")]
     [SerializeField] private CanvasGroup canvasGroup;
     [SerializeField] private bool alwaysVisible = true;
+    [SerializeField] private GameObject damageBarContainer; // Container to hide/show damage bar
 
     [Header("Animation")]
     [SerializeField] private float fillSmoothSpeed = 8f;
@@ -76,6 +91,8 @@ public class SlimeScaleIndicatorUI : MonoBehaviour
     private float targetScaleFill = 1f;
     private float currentSpeedFill = 0.5f;  // Start at 50% for 1.0x
     private float targetSpeedFill = 0.5f;
+    private float currentDamageFill = 1f;   // Start at 100% for 1.0x
+    private float targetDamageFill = 1f;
     
     // Cache previous values to detect changes
     private ModifierType lastKnownModifier = ModifierType.None;
@@ -156,12 +173,16 @@ public class SlimeScaleIndicatorUI : MonoBehaviour
         // Smooth fill animations
         currentScaleFill = Mathf.Lerp(currentScaleFill, targetScaleFill, fillSmoothSpeed * Time.deltaTime);
         currentSpeedFill = Mathf.Lerp(currentSpeedFill, targetSpeedFill, fillSmoothSpeed * Time.deltaTime);
+        currentDamageFill = Mathf.Lerp(currentDamageFill, targetDamageFill, fillSmoothSpeed * Time.deltaTime);
         
         if (scaleFillImage != null)
             scaleFillImage.fillAmount = currentScaleFill;
         
         if (speedFillImage != null)
             speedFillImage.fillAmount = currentSpeedFill;
+        
+        if (damageFillImage != null)
+            damageFillImage.fillAmount = currentDamageFill;
 
         // Retry finding player
         if (localSlimeController == null && localPlayerController == null && Time.frameCount % 60 == 0)
@@ -219,6 +240,7 @@ public class SlimeScaleIndicatorUI : MonoBehaviour
         
         UpdateScaleDisplay(isSlime);
         UpdateSpeedDisplay(isSlime);
+        UpdateDamageDisplay(isSlime); // NEW
         UpdateFormDisplay(isSlime);
     }
 
@@ -239,7 +261,7 @@ public class SlimeScaleIndicatorUI : MonoBehaviour
             // Wizard form: always 100% scale (unless SizeChange event active)
             float sizeMultiplier = LuckyBox.GetSizeMultiplier();
             scalePercent = sizeMultiplier * 100f;
-            normalizedScale = Mathf.Clamp01(sizeMultiplier); // 0.5-1.5 range, normalize roughly
+            normalizedScale = Mathf.Clamp01(sizeMultiplier);
         }
         
         // Update fill target
@@ -298,16 +320,11 @@ public class SlimeScaleIndicatorUI : MonoBehaviour
             if (slowDebuff != null && slowDebuff.IsActive)
             {
                 speedMultiplier *= slowDebuff.GetMultiplier();
-                speedColor = Color.Lerp(speedColor, slowedSpeedColor, 0.5f); // Tint red when slowed
+                speedColor = Color.Lerp(speedColor, slowedSpeedColor, 0.5f);
             }
         }
         
-        // === NEW SPEED BAR LOGIC ===
-        // 1.0x = 50% fill (half bar)
-        // 2.0x = 100% fill (full bar)
-        // 0.5x = 25% fill (quarter bar)
-        // Formula: fillAmount = speedMultiplier / 2.0
-        // This means: 0x = 0%, 1x = 50%, 2x = 100%, 4x = 200% (clamped to 100%)
+        // Speed bar: 1.0x = 50%, 2.0x = 100%
         float normalizedSpeed = speedMultiplier / 2f;
         normalizedSpeed = Mathf.Clamp01(normalizedSpeed);
         
@@ -323,6 +340,59 @@ public class SlimeScaleIndicatorUI : MonoBehaviour
         if (speedFillImage != null)
         {
             speedFillImage.color = speedColor;
+        }
+    }
+
+    /// <summary>
+    /// NEW: Display damage multiplier (only relevant for slime form)
+    /// </summary>
+    private void UpdateDamageDisplay(bool isSlime)
+    {
+        // Show/hide damage bar container based on form
+        if (damageBarContainer != null)
+        {
+            damageBarContainer.SetActive(isSlime);
+        }
+        
+        float damageMultiplier = 1f;
+        Color damageColor = wizardDamageColor;
+        
+        if (isSlime && localSlimeController != null)
+        {
+            // Slime form: damage scales with size (smaller = weaker)
+            damageMultiplier = localSlimeController.GetDamageMultiplier();
+            
+            // Color goes from orange (full) to dark orange (low)
+            float normalized = (damageMultiplier - 0.4f) / 0.6f; // Assuming min 0.4, max 1.0
+            damageColor = Color.Lerp(lowDamageColor, fullDamageColor, Mathf.Clamp01(normalized));
+        }
+        else
+        {
+            // Wizard form: always full damage
+            damageMultiplier = 1f;
+            damageColor = wizardDamageColor;
+        }
+        
+        // Damage bar: 1.0x = 100%, 0.4x = 40%
+        targetDamageFill = Mathf.Clamp01(damageMultiplier);
+        
+        // Update text
+        if (damageValueText != null)
+        {
+            damageValueText.text = $"{damageMultiplier:F2}x";
+            
+            // Show actual damage value in parentheses for clarity
+            if (isSlime && localSlimeController != null)
+            {
+                int actualDamage = localSlimeController.GetScaledGloopDamage();
+                damageValueText.text = $"{damageMultiplier:F2}x ({actualDamage})";
+            }
+        }
+        
+        // Update color
+        if (damageFillImage != null)
+        {
+            damageFillImage.color = damageColor;
         }
     }
 
@@ -350,7 +420,6 @@ public class SlimeScaleIndicatorUI : MonoBehaviour
             }
             else
             {
-                // No sprite assigned, just change color
                 formIcon.color = isSlime ? slimeFormColor : wizardFormColor;
             }
         }

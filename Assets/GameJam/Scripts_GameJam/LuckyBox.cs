@@ -6,14 +6,13 @@ using System.Collections.Generic;
 using TMPro;
 
 /// <summary>
-/// Enhanced Lucky Box system with Slime Shift modifier.
-/// Handles global events that affect ALL players simultaneously.
+/// LuckyBox global event system with full SizeChange support.
 /// 
 /// Modifiers:
-/// - SpeedBoost: All players move faster
+/// - SpeedBoost: All players move 2x faster
 /// - ReverseControls: All players have inverted controls  
 /// - SlimeShift: ALL players transform into Slime form
-/// - SizeChange: All players become larger/smaller
+/// - SizeChange: All players scale up/down (with separate visual/collider scaling)
 /// 
 /// Place in GameScene. Server-authoritative.
 /// </summary>
@@ -22,8 +21,8 @@ public enum ModifierType
     None = 0,
     SpeedBoost = 1, 
     ReverseControls = 2,
-    SlimeShift = 3,      // Transform everyone to slime
-    SizeChange = 4       // Make everyone bigger/smaller
+    SlimeShift = 3,
+    SizeChange = 4
 }
 
 public class LuckyBox : NetworkBehaviour
@@ -37,7 +36,7 @@ public class LuckyBox : NetworkBehaviour
     #region Network Variables
 
     /// <summary>
-    /// Current active global event. All clients read this to know what modifier is active.
+    /// Current active global event
     /// </summary>
     public static NetworkVariable<ModifierType> ActiveGlobalEvent = new NetworkVariable<ModifierType>(
         ModifierType.None, 
@@ -51,7 +50,7 @@ public class LuckyBox : NetworkBehaviour
     public static NetworkVariable<int> EventTimer = new NetworkVariable<int>(0);
 
     /// <summary>
-    /// For SizeChange: the size multiplier (0.5 = half size, 2.0 = double)
+    /// Size multiplier for SizeChange event (0.5 to 1.5 typically)
     /// </summary>
     public static NetworkVariable<float> SizeMultiplier = new NetworkVariable<float>(
         1.0f,
@@ -64,29 +63,31 @@ public class LuckyBox : NetworkBehaviour
     #region Inspector Fields
 
     [Header("Event Timing")]
-    [Tooltip("Time between events (countdown)")]
-    [SerializeField] private int timeBetweenEvents = 4;  // UPDATED: 4 seconds
-    
-    [Tooltip("Duration of each event")]
-    [SerializeField] private int eventDuration = 10;     // UPDATED: 10 seconds
+    [SerializeField] private int timeBetweenEvents = 4;
+    [SerializeField] private int eventDuration = 10;
 
     [Header("Modifier Weights")]
-    [Tooltip("Chance weights for each modifier type")]
     [SerializeField] private float speedBoostWeight = 1f;
     [SerializeField] private float reverseControlsWeight = 1f;
     [SerializeField] private float slimeShiftWeight = 1f;
     [SerializeField] private float sizeChangeWeight = 1f;
 
     [Header("Size Change Settings")]
+    [Tooltip("Minimum size multiplier (smaller = harder to hit but weaker)")]
     [SerializeField] private float minSizeMultiplier = 0.5f;
+    
+    [Tooltip("Maximum size multiplier (larger = easier to hit but stronger presence)")]
     [SerializeField] private float maxSizeMultiplier = 1.5f;
+    
+    [Tooltip("If true, all players get same size. If false, each player gets random size.")]
+    [SerializeField] private bool uniformSizeChange = true;
 
     [Header("UI References")]
     [SerializeField] private TextMeshProUGUI eventDisplayText;
     [SerializeField] private Image eventBackgroundImage;
     [SerializeField] private Image timerFillImage;
 
-    [Header("Visual Effects")]
+    [Header("Audio/VFX")]
     [SerializeField] private GameObject eventActivationVFX;
     [SerializeField] private AudioClip eventStartSound;
     [SerializeField] private AudioClip eventEndSound;
@@ -99,8 +100,6 @@ public class LuckyBox : NetworkBehaviour
     private AudioSource audioSource;
     private Dictionary<ModifierType, float> modifierWeights;
     private float totalWeight;
-
-    // Track which players were wizards before SlimeShift (to restore them after)
     private Dictionary<ulong, bool> preSlimeShiftForms = new Dictionary<ulong, bool>();
 
     #endregion
@@ -116,12 +115,10 @@ public class LuckyBox : NetworkBehaviour
         }
         Instance = this;
 
-        // Setup audio
         audioSource = GetComponent<AudioSource>();
         if (audioSource == null)
             audioSource = gameObject.AddComponent<AudioSource>();
 
-        // Setup modifier weights
         modifierWeights = new Dictionary<ModifierType, float>
         {
             { ModifierType.SpeedBoost, speedBoostWeight },
@@ -135,21 +132,18 @@ public class LuckyBox : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
-        // Subscribe to value changes for UI updates
         EventTimer.OnValueChanged += OnTimerChanged;
         ActiveGlobalEvent.OnValueChanged += OnEventChanged;
         SizeMultiplier.OnValueChanged += OnSizeMultiplierChanged;
 
-        // Initial UI update
         RefreshUI();
 
-        // Server starts the event cycle
         if (IsServer)
         {
             StartCoroutine(GlobalEventCycle());
         }
 
-        Debug.Log("[LuckyBox] Network spawned. Starting event cycle...");
+        Debug.Log("[LuckyBox] Network spawned.");
     }
 
     public override void OnNetworkDespawn()
@@ -175,7 +169,6 @@ public class LuckyBox : NetworkBehaviour
             {
                 EventTimer.Value = i;
                 
-                // Play tick sound in last 3 seconds
                 if (i <= 3)
                 {
                     PlayTickSoundClientRpc();
@@ -187,19 +180,21 @@ public class LuckyBox : NetworkBehaviour
             // === SELECT RANDOM EVENT ===
             ModifierType selectedEvent = SelectRandomModifier();
             
-            // If SlimeShift, store current forms
+            // Pre-event setup
             if (selectedEvent == ModifierType.SlimeShift)
             {
                 StorePlayerForms();
             }
             
-            // If SizeChange, randomize the multiplier
             if (selectedEvent == ModifierType.SizeChange)
             {
-                SizeMultiplier.Value = Random.Range(minSizeMultiplier, maxSizeMultiplier);
+                // Set size multiplier BEFORE activating event
+                float newSize = Random.Range(minSizeMultiplier, maxSizeMultiplier);
+                SizeMultiplier.Value = newSize;
+                Debug.Log($"[LuckyBox] SizeChange multiplier set to: {newSize:F2}x");
             }
 
-            // Activate the event
+            // Activate event
             ActiveGlobalEvent.Value = selectedEvent;
             ApplyEventToAllPlayers(selectedEvent, true);
             PlayEventStartClientRpc(selectedEvent);
@@ -216,6 +211,12 @@ public class LuckyBox : NetworkBehaviour
             // === END EVENT ===
             ApplyEventToAllPlayers(selectedEvent, false);
             PlayEventEndClientRpc();
+            
+            // Reset size after SizeChange ends
+            if (selectedEvent == ModifierType.SizeChange)
+            {
+                SizeMultiplier.Value = 1.0f;
+            }
             
             Debug.Log($"[LuckyBox] Event ended: {selectedEvent}");
         }
@@ -235,7 +236,7 @@ public class LuckyBox : NetworkBehaviour
             }
         }
 
-        return ModifierType.SpeedBoost; // Fallback
+        return ModifierType.SpeedBoost;
     }
 
     #endregion
@@ -259,11 +260,12 @@ public class LuckyBox : NetworkBehaviour
                     break;
                     
                 case ModifierType.SizeChange:
-                    ApplySizeChange(playerObj, activate);
+                    // SizeChange is handled by SizeChangeHandler listening to SizeMultiplier
+                    // But we can notify it to refresh
+                    NotifySizeChange(playerObj, activate);
                     break;
                     
-                // SpeedBoost and ReverseControls are handled in PlayerController
-                // by reading ActiveGlobalEvent value
+                // SpeedBoost and ReverseControls are handled by PlayerController reading ActiveGlobalEvent
             }
         }
     }
@@ -291,31 +293,32 @@ public class LuckyBox : NetworkBehaviour
 
         if (activate)
         {
-            // Transform to slime
             slime.TransformToSlime();
         }
         else
         {
-            // Restore previous form (or default to wizard)
             bool wasSlime = preSlimeShiftForms.ContainsKey(clientId) && preSlimeShiftForms[clientId];
             
             if (!wasSlime)
             {
                 slime.TransformToWizard();
             }
-            // If they were already slime, they stay slime
         }
     }
 
-    private void ApplySizeChange(GameObject playerObj, bool activate)
+    private void NotifySizeChange(GameObject playerObj, bool activate)
     {
-        // Size change is read from SizeMultiplier NetworkVariable
-        // PlayerController/SlimeController should read this value
-        
-        // The actual scaling is handled by the player reading SizeMultiplier
-        if (activate)
+        SizeChangeHandler sizeHandler = playerObj.GetComponent<SizeChangeHandler>();
+        if (sizeHandler != null)
         {
-            Debug.Log($"[LuckyBox] Size change activated: {SizeMultiplier.Value}x");
+            if (activate)
+            {
+                sizeHandler.RefreshScale();
+            }
+            else
+            {
+                sizeHandler.ResetToBaseScale();
+            }
         }
     }
 
@@ -347,7 +350,6 @@ public class LuckyBox : NetworkBehaviour
 
         if (currentEvent == ModifierType.None)
         {
-            // Countdown to next event
             eventDisplayText.text = $"Next Event In: {timer}s";
             eventDisplayText.color = Color.white;
             
@@ -356,20 +358,23 @@ public class LuckyBox : NetworkBehaviour
         }
         else
         {
-            // Event is active
             string eventName = GetEventDisplayName(currentEvent);
-            string extra = currentEvent == ModifierType.SizeChange 
-                ? $" ({SizeMultiplier.Value:F1}x)" 
-                : "";
+            string extra = "";
             
-            eventDisplayText.text = $"EVENT: {eventName}{extra} ({timer}s)";
+            if (currentEvent == ModifierType.SizeChange)
+            {
+                float size = SizeMultiplier.Value;
+                string sizeDesc = size < 1f ? "SHRINK" : "GROW";
+                extra = $" ({size:F1}x {sizeDesc})";
+            }
+            
+            eventDisplayText.text = $"{eventName}{extra} ({timer}s)";
             eventDisplayText.color = GetEventColor(currentEvent);
             
             if (eventBackgroundImage != null)
                 eventBackgroundImage.color = GetEventColor(currentEvent) * 0.3f;
         }
 
-        // Update timer fill
         if (timerFillImage != null)
         {
             float maxTime = currentEvent == ModifierType.None ? timeBetweenEvents : eventDuration;
@@ -382,7 +387,7 @@ public class LuckyBox : NetworkBehaviour
         return eventType switch
         {
             ModifierType.SpeedBoost => "⚡ SPEED BOOST!",
-            ModifierType.ReverseControls => "🔄 REVERSE CONTROLS!",
+            ModifierType.ReverseControls => "🔄 REVERSE!",
             ModifierType.SlimeShift => "🟢 SLIME SHIFT!",
             ModifierType.SizeChange => "📏 SIZE CHANGE!",
             _ => "NONE"
@@ -403,24 +408,20 @@ public class LuckyBox : NetworkBehaviour
 
     #endregion
 
-    #region Client RPCs for Audio/VFX
+    #region Client RPCs
 
     [ClientRpc]
     private void PlayEventStartClientRpc(ModifierType eventType)
     {
-        // Play activation VFX
         if (eventActivationVFX != null)
         {
             Instantiate(eventActivationVFX, Vector3.zero, Quaternion.identity);
         }
 
-        // Play sound
         if (eventStartSound != null && audioSource != null)
         {
             audioSource.PlayOneShot(eventStartSound);
         }
-
-        Debug.Log($"[LuckyBox] Client received event start: {eventType}");
     }
 
     [ClientRpc]
@@ -445,33 +446,21 @@ public class LuckyBox : NetworkBehaviour
 
     #region Public API
 
-    /// <summary>
-    /// Get the current speed multiplier from the global event
-    /// </summary>
     public static float GetGlobalSpeedMultiplier()
     {
         return ActiveGlobalEvent.Value == ModifierType.SpeedBoost ? 2.0f : 1.0f;
     }
 
-    /// <summary>
-    /// Check if controls should be reversed
-    /// </summary>
     public static bool AreControlsReversed()
     {
         return ActiveGlobalEvent.Value == ModifierType.ReverseControls;
     }
 
-    /// <summary>
-    /// Check if everyone is in forced slime form
-    /// </summary>
     public static bool IsSlimeShiftActive()
     {
         return ActiveGlobalEvent.Value == ModifierType.SlimeShift;
     }
 
-    /// <summary>
-    /// Get the current size multiplier (for SizeChange event)
-    /// </summary>
     public static float GetSizeMultiplier()
     {
         if (ActiveGlobalEvent.Value == ModifierType.SizeChange)
@@ -479,24 +468,27 @@ public class LuckyBox : NetworkBehaviour
         return 1.0f;
     }
 
-    /// <summary>
-    /// Force a specific event (for testing/debugging)
-    /// Server-only
-    /// </summary>
-    public void ForceEvent(ModifierType eventType)
+    public static bool IsSizeChangeActive()
     {
-        if (!IsServer)
-        {
-            Debug.LogWarning("[LuckyBox] ForceEvent can only be called on server!");
-            return;
-        }
+        return ActiveGlobalEvent.Value == ModifierType.SizeChange;
+    }
+
+    /// <summary>
+    /// Force a specific event (for testing)
+    /// </summary>
+    public void ForceEvent(ModifierType eventType, float sizeMultiplier = 1f)
+    {
+        if (!IsServer) return;
 
         StopAllCoroutines();
-        ActiveGlobalEvent.Value = eventType;
         
         if (eventType == ModifierType.SlimeShift)
             StorePlayerForms();
         
+        if (eventType == ModifierType.SizeChange)
+            SizeMultiplier.Value = sizeMultiplier;
+        
+        ActiveGlobalEvent.Value = eventType;
         ApplyEventToAllPlayers(eventType, true);
         StartCoroutine(ForcedEventCoroutine(eventType));
     }
@@ -510,6 +502,10 @@ public class LuckyBox : NetworkBehaviour
         }
         
         ApplyEventToAllPlayers(eventType, false);
+        
+        if (eventType == ModifierType.SizeChange)
+            SizeMultiplier.Value = 1.0f;
+        
         ActiveGlobalEvent.Value = ModifierType.None;
         StartCoroutine(GlobalEventCycle());
     }
