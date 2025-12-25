@@ -3,10 +3,22 @@ using Unity.Netcode;
 using UnityEngine;
 using Unity.Cinemachine;
 
+/// <summary>
+/// PlayerController handles movement, aiming, and shooting.
+/// Updated to integrate with SlimeController for form-aware combat.
+/// 
+/// Features:
+/// - Form-aware projectiles (Fireball vs Gloop)
+/// - Adaptive speed from SlimeController
+/// - Lucky Box event integration
+/// - Slow debuff handling
+/// </summary>
 public class PlayerController : NetworkBehaviour
 {
     public NetworkVariable<int> score = new NetworkVariable<int>(0);
     
+    #region Inspector Fields
+
     [Header("Movement Settings")]
     [SerializeField] private float moveSpeed = 5f;
     [SerializeField] private float speedBoostMultiplier = 2f; 
@@ -14,7 +26,7 @@ public class PlayerController : NetworkBehaviour
     [Header("Combat Settings")]
     [SerializeField] private GameObject fireballPrefab; 
     [SerializeField] private Transform firePoint;
-    [SerializeField] private float fireRate = 0.5f; // Saniyede 2 mermi
+    [SerializeField] private float fireRate = 0.5f;
     [SerializeField] private float fireballBaseSpeed = 10f; 
     private float nextFireTime = 0f;
 
@@ -28,6 +40,14 @@ public class PlayerController : NetworkBehaviour
     [SerializeField] private float aimIndicatorRadius = 1.5f; 
     [SerializeField] private float arrowScale = 0.5f; 
 
+    [Header("Form-Specific Colors")]
+    [SerializeField] private Color wizardArrowColor = Color.yellow;
+    [SerializeField] private Color slimeArrowColor = Color.green;
+
+    #endregion
+
+    #region Private Fields
+
     private Rigidbody2D rb;
     private Vector2 moveInput;
     private GameObject aimArrowInstance; 
@@ -35,12 +55,22 @@ public class PlayerController : NetworkBehaviour
     private static CinemachineCamera cachedSceneCamera;
     private SpriteRenderer playerSprite;
     private Canvas nameCanvas;
+    
+    // Component references
+    private SlimeController slimeController;
+    private ProceduralCharacterAnimator animator;
+
+    #endregion
+
+    #region Unity Lifecycle
 
     private void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
         playerSprite = GetComponent<SpriteRenderer>() ?? GetComponentInChildren<SpriteRenderer>();
         nameCanvas = GetComponentInChildren<Canvas>();
+        slimeController = GetComponent<SlimeController>();
+        animator = GetComponent<ProceduralCharacterAnimator>();
     }
 
     public override void OnNetworkSpawn()
@@ -63,15 +93,40 @@ public class PlayerController : NetworkBehaviour
         {
             this.enabled = false; 
         }
+        
+        // Subscribe to form changes for arrow color
+        if (slimeController != null)
+        {
+            slimeController.isSlimeForm.OnValueChanged += OnFormChanged;
+        }
     }
 
     public override void OnNetworkDespawn()
     {
         if (!IsOwner) return;
+        
         var cam = ResolveCamera();
         var target = cameraFollowTarget != null ? cameraFollowTarget : transform;
         if (cam != null && cam.Follow == target) cam.Follow = null;
+        
+        if (slimeController != null)
+        {
+            slimeController.isSlimeForm.OnValueChanged -= OnFormChanged;
+        }
     }
+
+    private void OnFormChanged(bool oldValue, bool newValue)
+    {
+        // Update arrow color based on form
+        if (aimArrowRenderer != null)
+        {
+            aimArrowRenderer.color = newValue ? slimeArrowColor : wizardArrowColor;
+        }
+    }
+
+    #endregion
+
+    #region Camera Setup
 
     private IEnumerator SetupCameraFollow()
     {
@@ -98,25 +153,60 @@ public class PlayerController : NetworkBehaviour
         return cachedSceneCamera;
     }
 
+    #endregion
+
+    #region Aiming Arrow
+
     private void CreateAimingArrow()
     {
         if (arrowSprite == null) return;
+        
         aimArrowInstance = new GameObject("AimArrow_Local");
         aimArrowInstance.transform.localScale = Vector3.one * arrowScale;
         aimArrowRenderer = aimArrowInstance.AddComponent<SpriteRenderer>();
         aimArrowRenderer.sprite = arrowSprite;
-        if (playerSprite != null) {
+        
+        if (playerSprite != null) 
+        {
             aimArrowRenderer.sortingLayerName = playerSprite.sortingLayerName;
             aimArrowRenderer.sortingOrder = playerSprite.sortingOrder + 1;
         }
-        aimArrowRenderer.color = Color.yellow;
+        
+        // Set initial color based on form
+        bool isSlime = slimeController != null && slimeController.isSlimeForm.Value;
+        aimArrowRenderer.color = isSlime ? slimeArrowColor : wizardArrowColor;
     }
 
     public void SetArrowVisibility(bool isVisible)
     {
-        if (aimArrowRenderer != null) aimArrowRenderer.enabled = isVisible;
-        if (isVisible && aimArrowInstance == null && IsOwner) CreateAimingArrow();
+        if (aimArrowRenderer != null) 
+            aimArrowRenderer.enabled = isVisible;
+        
+        if (isVisible && aimArrowInstance == null && IsOwner) 
+            CreateAimingArrow();
     }
+
+    private void UpdateAimingIndicator()
+    {
+        if (aimArrowInstance == null) 
+        {
+            if (playerSprite != null && playerSprite.enabled) 
+                CreateAimingArrow();
+            return;
+        }
+        
+        Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+        mousePos.z = 0f;
+        Vector2 direction = (mousePos - transform.position).normalized;
+        Vector3 arrowPosition = transform.position + (Vector3)direction * aimIndicatorRadius;
+        aimArrowInstance.transform.position = arrowPosition;
+        float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg - 90f;
+        aimArrowInstance.transform.rotation = Quaternion.Euler(0, 0, angle);
+    }
+
+    #endregion
+
+    #region Update Loop
 
     private void Update()
     {
@@ -135,8 +225,8 @@ public class PlayerController : NetworkBehaviour
         float moveX = Input.GetAxisRaw("Horizontal");
         float moveY = Input.GetAxisRaw("Vertical");
 
-        // KAOS: TERS KONTROL
-        if (LuckyBox.ActiveGlobalEvent.Value == ModifierType.ReverseControls)
+        // LUCKY BOX: REVERSE CONTROLS
+        if (LuckyBox.AreControlsReversed())
         {
             moveX *= -1;
             moveY *= -1;
@@ -145,66 +235,132 @@ public class PlayerController : NetworkBehaviour
         moveInput = new Vector2(moveX, moveY).normalized;
         UpdateAimingIndicator();
 
-        // ATEŞ ETME (Kısıtlama ve Hız Ayarı)
+        // SHOOTING
         if (Input.GetButton("Fire1") && Time.time >= nextFireTime)
         {
-            if (fireballPrefab != null && aimArrowInstance != null)
-            {
-                float projSpeed = fireballBaseSpeed;
-                if (LuckyBox.ActiveGlobalEvent.Value == ModifierType.SpeedBoost)
-                {
-                    projSpeed *= speedBoostMultiplier; 
-                }
-
-                ShootServerRpc(aimArrowInstance.transform.position, aimArrowInstance.transform.rotation, projSpeed);
-                nextFireTime = Time.time + fireRate;
-            }
+            TryShoot();
         }
     }
 
-    private void UpdateAimingIndicator()
-    {
-        if (aimArrowInstance == null) {
-            if (playerSprite != null && playerSprite.enabled) CreateAimingArrow();
-            return;
-        }
-        Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
-        mousePos.z = 0f;
-        Vector2 direction = (mousePos - transform.position).normalized;
-        Vector3 arrowPosition = transform.position + (Vector3)direction * aimIndicatorRadius;
-        aimArrowInstance.transform.position = arrowPosition;
-        float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg - 90f;
-        aimArrowInstance.transform.rotation = Quaternion.Euler(0, 0, angle);
-    }
+    #endregion
+
+    #region Movement
 
     private void Move()
     {
-        float currentSpeed = moveSpeed;
+        float currentSpeed = CalculateCurrentSpeed();
+
+        if (rb != null) 
+            rb.linearVelocity = moveInput * currentSpeed;
+        else 
+            transform.position += (Vector3)moveInput * currentSpeed * Time.deltaTime;
+    }
+
+    /// <summary>
+    /// Calculate the current movement speed considering all modifiers
+    /// </summary>
+    private float CalculateCurrentSpeed()
+    {
+        float speed = moveSpeed;
+
+        // 1. Lucky Box Speed Boost
         if (LuckyBox.ActiveGlobalEvent.Value == ModifierType.SpeedBoost)
         {
-            currentSpeed *= speedBoostMultiplier;
+            speed *= speedBoostMultiplier;
         }
 
-        if (rb != null) rb.linearVelocity = moveInput * currentSpeed;
-        else transform.position += (Vector3)moveInput * currentSpeed * Time.deltaTime;
+        // 2. Slime Form Adaptive Scaling (smaller = faster)
+        if (slimeController != null && slimeController.IsSlime)
+        {
+            speed *= slimeController.GetSpeedMultiplier();
+        }
+
+        // 3. Slow Debuff (from Gloop hits)
+        SlowDebuff slowDebuff = GetComponent<SlowDebuff>();
+        if (slowDebuff != null && slowDebuff.IsActive)
+        {
+            speed *= slowDebuff.GetMultiplier();
+        }
+
+        return speed;
+    }
+
+    #endregion
+
+    #region Combat
+
+    private void TryShoot()
+    {
+        if (aimArrowInstance == null) return;
+
+        // Determine projectile settings based on form
+        GameObject projectilePrefab = fireballPrefab;
+        float projectileSpeed = fireballBaseSpeed;
+        
+        // Check if we should use gloop (slime form)
+        if (slimeController != null && slimeController.ShouldUseGloop())
+        {
+            var (gloopPrefab, gloopSpeed, _) = slimeController.GetProjectileSettings(fireballPrefab, fireballBaseSpeed);
+            projectilePrefab = gloopPrefab;
+            projectileSpeed = gloopSpeed;
+        }
+
+        // Apply Lucky Box speed boost to projectiles too
+        if (LuckyBox.ActiveGlobalEvent.Value == ModifierType.SpeedBoost)
+        {
+            projectileSpeed *= speedBoostMultiplier;
+        }
+
+        // Fire the projectile
+        Vector3 spawnPos = aimArrowInstance.transform.position;
+        Quaternion spawnRot = aimArrowInstance.transform.rotation;
+        
+        ShootServerRpc(spawnPos, spawnRot, projectileSpeed);
+        nextFireTime = Time.time + fireRate;
     }
 
     [ServerRpc]
     private void ShootServerRpc(Vector3 position, Quaternion rotation, float speed, ServerRpcParams rpcParams = default)
     {
-        GameObject fireball = Instantiate(fireballPrefab, position, rotation);
+        ulong shooterId = rpcParams.Receive.SenderClientId;
         
-        // HATA ÇÖZÜMÜ: Senin scriptinin adı FireballLogic olduğu için onu arıyoruz
-        var fireballScript = fireball.GetComponent<FireballLogic>(); 
-        if (fireballScript != null)
+        // Determine which prefab to use based on the shooter's form
+        GameObject prefabToUse = fireballPrefab;
+        SlimeController shooterSlime = null;
+        
+        if (NetworkManager.Singleton.ConnectedClients.TryGetValue(shooterId, out NetworkClient client))
         {
-            // Burası önemli: FireballLogic içindeki speed değerini set ediyoruz
-            fireballScript.SetSpeed(speed);
+            shooterSlime = client.PlayerObject?.GetComponent<SlimeController>();
+            if (shooterSlime != null && shooterSlime.ShouldUseGloop())
+            {
+                var (gloopPrefab, _, _) = shooterSlime.GetProjectileSettings(fireballPrefab, fireballBaseSpeed);
+                prefabToUse = gloopPrefab;
+            }
         }
 
-        ulong shooterId = rpcParams.Receive.SenderClientId;
-        fireball.GetComponent<NetworkObject>().SpawnWithOwnership(shooterId);
+        // Spawn the projectile
+        GameObject projectile = Instantiate(prefabToUse, position, rotation);
+        
+        // Configure projectile speed
+        var fireballLogic = projectile.GetComponent<FireballLogic>();
+        if (fireballLogic != null)
+        {
+            fireballLogic.SetSpeed(speed);
+        }
+        
+        var gloopLogic = projectile.GetComponent<GloopLogic>();
+        if (gloopLogic != null)
+        {
+            gloopLogic.SetSpeed(speed);
+        }
+
+        // Spawn with ownership
+        projectile.GetComponent<NetworkObject>().SpawnWithOwnership(shooterId);
     }
+
+    #endregion
+
+    #region Visibility & Spawn
 
     private void SetVisibility(bool isVisible)
     {
@@ -217,28 +373,48 @@ public class PlayerController : NetworkBehaviour
     {
         float timer = 0f;
         GameObject[] points = null;
-        while (timer < 3f) {
+        
+        while (timer < 3f) 
+        {
             points = GameObject.FindGameObjectsWithTag("Respawn");
             if (points.Length > 0) break;
             yield return new WaitForSeconds(0.1f);
             timer += 0.1f;
         }
-        if (points != null && points.Length > 0) {
+        
+        if (points != null && points.Length > 0) 
+        {
             var target = points[Random.Range(0, points.Length)].transform.position;
             if (rb != null) rb.position = target;
             else transform.position = target;
         }
+        
         SetVisibility(true);
         CreateAimingArrow();
     }
 
-    // NetworkBehaviour OnDestroy override hatasını çözdük
+    #endregion
+
+    #region Cleanup
+
     public override void OnDestroy() 
     { 
         base.OnDestroy();
-        if (aimArrowInstance != null) Destroy(aimArrowInstance); 
+        if (aimArrowInstance != null) 
+            Destroy(aimArrowInstance); 
     }
 
-    private void OnDisable() { if (aimArrowRenderer != null) aimArrowRenderer.enabled = false; }
-    private void OnEnable() { if (aimArrowRenderer != null && IsOwner) aimArrowRenderer.enabled = true; }
+    private void OnDisable() 
+    { 
+        if (aimArrowRenderer != null) 
+            aimArrowRenderer.enabled = false; 
+    }
+    
+    private void OnEnable() 
+    { 
+        if (aimArrowRenderer != null && IsOwner) 
+            aimArrowRenderer.enabled = true; 
+    }
+
+    #endregion
 }

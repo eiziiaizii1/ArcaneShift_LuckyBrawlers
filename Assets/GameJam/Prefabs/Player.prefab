@@ -607,6 +607,7 @@ GameObject:
   - component: {fileID: 5227194687905299074}
   - component: {fileID: 4796968941541468363}
   - component: {fileID: 2481530332923885334}
+  - component: {fileID: 8497800046484309242}
   - component: {fileID: 7640312092797741885}
   - component: {fileID: 8720252111991709571}
   - component: {fileID: 3214181975858721720}
@@ -725,14 +726,58 @@ MonoBehaviour:
   score:
     m_InternalValue: 0
   moveSpeed: 5
+  speedBoostMultiplier: 2
   fireballPrefab: {fileID: 631105796896545203, guid: 8dee7bb9c5c7ded488b49f98d92526af, type: 3}
   firePoint: {fileID: 8516783338779248797}
+  fireRate: 0.5
+  fireballBaseSpeed: 10
   sceneCamera: {fileID: 0}
   cameraFollowTarget: {fileID: 0}
   cameraSearchTimeout: 5
   arrowSprite: {fileID: 21300000, guid: 03e55ad5c1ca60e46b45fb8db7e85cbd, type: 3}
   aimIndicatorRadius: 1.1
   arrowScale: 0.69
+  wizardArrowColor: {r: 0.15359731, g: 0.509434, b: 0, a: 1}
+  slimeArrowColor: {r: 0, g: 1, b: 0.63603806, a: 1}
+--- !u!114 &8497800046484309242
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8593513877603837951}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a5164a0d0f002ad43ac7e3fa7c2089cf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  ShowTopMostFoldoutHeaderGroup: 1
+  currentScale:
+    m_InternalValue: 1
+  ultimateMeter:
+    m_InternalValue: 0
+  isSlimeForm:
+    m_InternalValue: 0
+  minScale: 0.3
+  maxScale: 1
+  scalePerDamage: 0.007
+  maxSpeedMultiplier: 2
+  minSpeedMultiplier: 1
+  ultimateChargePerDamage: 2
+  maxUltimateCharge: 100
+  ultimateAOEDamage: 50
+  ultimateAOERadius: 5
+  ultimateCooldown: 1
+  gloopPrefab: {fileID: 631105796896545203, guid: e751fcc783b687149b2840371e9f8871, type: 3}
+  gloopSpeed: 7
+  gloopDamage: 20
+  transformVFX: {fileID: 0}
+  ultimateVFX: {fileID: 0}
+  transformSound: {fileID: 0}
+  ultimateSound: {fileID: 0}
+  visualTransform: {fileID: 6828734296932042643}
+  playerController: {fileID: 2481530332923885334}
+  animator: {fileID: 7640312092797741885}
 --- !u!114 &7640312092797741885
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -914,3 +959,8 @@ MonoBehaviour:
   currentHealth:
     m_InternalValue: 100
   healthBarFill: {fileID: 7222345150381273228}
+  healthBarBackground: {fileID: 4499463498348416838}
+  respawnDelay: 3
+  normalHealthColor: {r: 0, g: 1, b: 0, a: 1}
+  lowHealthColor: {r: 0, g: 0.42138356, b: 0, a: 1}
+  lowHealthThreshold: 0.3
