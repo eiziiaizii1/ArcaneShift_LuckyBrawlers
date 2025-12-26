@@ -1,24 +1,51 @@
 using Unity.Netcode;
 using UnityEngine;
 using TMPro;
+using UnityEngine.SceneManagement;
 
 public class MatchManager : NetworkBehaviour
 {
     public NetworkVariable<float> RemainingTime = new NetworkVariable<float>(300f);
     public NetworkVariable<bool> IsMatchEnded = new NetworkVariable<bool>(false);
 
-    [Header("UI Referansları")]
+    [Header("UI References")]
     [SerializeField] private TextMeshProUGUI timerText;
-    [SerializeField] private GameObject endGamePanel; // Skor tablosunun olduğu panel
-    [SerializeField] private GameObject mainMenuButton; // Panelin DIŞINDAKİ buton
+    [SerializeField] private GameObject endGamePanel;
+    [SerializeField] private GameObject mainMenuButton;
 
     public override void OnNetworkSpawn()
     {
-        if (IsServer) StartCoroutine(MatchTimerRoutine());
+        // IMPORTANT: Reset timeScale when match starts!
+        Time.timeScale = 1f;
         
-        IsMatchEnded.OnValueChanged += (oldVal, newVal) => {
-            if (newVal) StopGameAndShowUI();
-        };
+        if (IsServer)
+        {
+            RemainingTime.Value = 300f; // Reset timer
+            IsMatchEnded.Value = false;
+            StartCoroutine(MatchTimerRoutine());
+        }
+        
+        IsMatchEnded.OnValueChanged += OnMatchEndedChanged;
+        
+        // Hide end game UI initially
+        if (endGamePanel != null) endGamePanel.SetActive(false);
+        if (mainMenuButton != null) mainMenuButton.SetActive(false);
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        IsMatchEnded.OnValueChanged -= OnMatchEndedChanged;
+        
+        // Always restore timeScale when leaving!
+        Time.timeScale = 1f;
+    }
+
+    private void OnMatchEndedChanged(bool oldVal, bool newVal)
+    {
+        if (newVal)
+        {
+            StopGameAndShowUI();
+        }
     }
 
     private System.Collections.IEnumerator MatchTimerRoutine()
@@ -28,23 +55,47 @@ public class MatchManager : NetworkBehaviour
             yield return new WaitForSeconds(1f);
             RemainingTime.Value -= 1f;
         }
-        if (IsServer) IsMatchEnded.Value = true;
+        
+        if (IsServer)
+        {
+            IsMatchEnded.Value = true;
+        }
     }
 
     private void StopGameAndShowUI()
     {
-        // Zamanı durdurur, böylece mermiler ve coinler donar
-        Time.timeScale = 0f;
+        // DON'T USE Time.timeScale = 0f - it breaks networking!
+        // Instead, disable player controls
+        
+        // Show UI
+        if (endGamePanel != null) endGamePanel.SetActive(true);
+        if (mainMenuButton != null) mainMenuButton.SetActive(true);
 
-        // Paneli ve butonu ayrı ayrı aktif ediyoruz
-        if (endGamePanel != null) endGamePanel.SetActive(true); //
-        if (mainMenuButton != null) mainMenuButton.SetActive(true); //
-
-        // Yerel oyuncunun kontrollerini kapatır
-        if (NetworkManager.Singleton.LocalClient != null)
+        // Disable local player controls (not all players - just local)
+        DisableLocalPlayerControls();
+        
+        // Stop LuckyBox events
+        if (LuckyBox.Instance != null)
         {
-            var localPlayer = NetworkManager.Singleton.LocalClient.PlayerObject;
-            if (localPlayer != null) localPlayer.GetComponent<PlayerController>().enabled = false;
+            LuckyBox.Instance.StopAllCoroutines();
+        }
+    }
+
+    private void DisableLocalPlayerControls()
+    {
+        if (NetworkManager.Singleton == null) return;
+        if (NetworkManager.Singleton.LocalClient == null) return;
+        
+        var localPlayer = NetworkManager.Singleton.LocalClient.PlayerObject;
+        if (localPlayer != null)
+        {
+            // Disable movement/shooting
+            var pc = localPlayer.GetComponent<PlayerController>();
+            if (pc != null) pc.enabled = false;
+            
+            // Stop any velocity
+            var rb = localPlayer.GetComponent<Rigidbody2D>();
+            if (rb != null) rb.linearVelocity = Vector2.zero;
         }
     }
 
@@ -54,15 +105,40 @@ public class MatchManager : NetworkBehaviour
         {
             int minutes = Mathf.FloorToInt(RemainingTime.Value / 60);
             int seconds = Mathf.FloorToInt(RemainingTime.Value % 60);
-            timerText.text = string.Format("{0:00}:{1:00}", minutes, seconds);
+            timerText.text = $"{minutes:00}:{seconds:00}";
+            
+            // Optional: Red color in last 30 seconds
+            if (RemainingTime.Value <= 30f)
+            {
+                timerText.color = Color.red;
+            }
         }
     }
 
-    // Butonun OnClick olayına bağlanacak fonksiyon
+    // Button OnClick handler
     public void ExitToMenu()
     {
-        Time.timeScale = 1f; // ÖNEMLİ: Zamanı tekrar başlatmazsan menü donuk kalır!
-        NetworkManager.Singleton.Shutdown();
-        UnityEngine.SceneManagement.SceneManager.LoadScene("MainMenu");
+        // CRITICAL: Always restore timeScale!
+        Time.timeScale = 1f;
+        
+        // Shutdown network
+        if (NetworkManager.Singleton != null)
+        {
+            NetworkManager.Singleton.Shutdown();
+        }
+        
+        // Load menu
+        SceneManager.LoadScene("MainMenu");
+    }
+    
+    // Also add this as a safety net
+    private void OnDestroy()
+    {
+        Time.timeScale = 1f;
+    }
+    
+    private void OnApplicationQuit()
+    {
+        Time.timeScale = 1f;
     }
 }
