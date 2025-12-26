@@ -38,7 +38,7 @@ public class LuckyBox : NetworkBehaviour
     /// <summary>
     /// Current active global event
     /// </summary>
-    public static NetworkVariable<ModifierType> ActiveGlobalEvent = new NetworkVariable<ModifierType>(
+    public NetworkVariable<ModifierType> ActiveGlobalEvent = new NetworkVariable<ModifierType>(
         ModifierType.None, 
         NetworkVariableReadPermission.Everyone, 
         NetworkVariableWritePermission.Server
@@ -47,12 +47,12 @@ public class LuckyBox : NetworkBehaviour
     /// <summary>
     /// Countdown timer (seconds remaining)
     /// </summary>
-    public static NetworkVariable<int> EventTimer = new NetworkVariable<int>(0);
+    public NetworkVariable<int> EventTimer = new NetworkVariable<int>(0);
 
     /// <summary>
     /// Size multiplier for SizeChange event (0.5 to 1.5 typically)
     /// </summary>
-    public static NetworkVariable<float> SizeMultiplier = new NetworkVariable<float>(
+    public NetworkVariable<float> SizeMultiplier = new NetworkVariable<float>(
         1.0f,
         NetworkVariableReadPermission.Everyone,
         NetworkVariableWritePermission.Server
@@ -78,9 +78,6 @@ public class LuckyBox : NetworkBehaviour
     
     [Tooltip("Maximum size multiplier (larger = easier to hit but stronger presence)")]
     [SerializeField] private float maxSizeMultiplier = 1.5f;
-    
-    [Tooltip("If true, all players get same size. If false, each player gets random size.")]
-    [SerializeField] private bool uniformSizeChange = true;
 
     [Header("UI References")]
     [SerializeField] private TextMeshProUGUI eventDisplayText;
@@ -132,8 +129,8 @@ public class LuckyBox : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
-        EventTimer.OnValueChanged += OnTimerChanged;
         ActiveGlobalEvent.OnValueChanged += OnEventChanged;
+        EventTimer.OnValueChanged += OnTimerChanged;
         SizeMultiplier.OnValueChanged += OnSizeMultiplierChanged;
 
         RefreshUI();
@@ -148,8 +145,8 @@ public class LuckyBox : NetworkBehaviour
 
     public override void OnNetworkDespawn()
     {
-        EventTimer.OnValueChanged -= OnTimerChanged;
         ActiveGlobalEvent.OnValueChanged -= OnEventChanged;
+        EventTimer.OnValueChanged -= OnTimerChanged;
         SizeMultiplier.OnValueChanged -= OnSizeMultiplierChanged;
     }
 
@@ -448,29 +445,34 @@ public class LuckyBox : NetworkBehaviour
 
     public static float GetGlobalSpeedMultiplier()
     {
-        return ActiveGlobalEvent.Value == ModifierType.SpeedBoost ? 2.0f : 1.0f;
+        if (Instance == null) return 1.0f;
+        return Instance.ActiveGlobalEvent.Value == ModifierType.SpeedBoost ? 2.0f : 1.0f;
     }
 
     public static bool AreControlsReversed()
     {
-        return ActiveGlobalEvent.Value == ModifierType.ReverseControls;
+        if (Instance == null) return false;
+        return Instance.ActiveGlobalEvent.Value == ModifierType.ReverseControls;
     }
 
     public static bool IsSlimeShiftActive()
     {
-        return ActiveGlobalEvent.Value == ModifierType.SlimeShift;
+        if (Instance == null) return false;
+        return Instance.ActiveGlobalEvent.Value == ModifierType.SlimeShift;
     }
 
     public static float GetSizeMultiplier()
     {
-        if (ActiveGlobalEvent.Value == ModifierType.SizeChange)
-            return SizeMultiplier.Value;
+        if (Instance == null) return 1.0f;
+        if (Instance.ActiveGlobalEvent.Value == ModifierType.SizeChange)
+            return Instance.SizeMultiplier.Value;
         return 1.0f;
     }
 
     public static bool IsSizeChangeActive()
     {
-        return ActiveGlobalEvent.Value == ModifierType.SizeChange;
+        if (Instance == null) return false;
+        return Instance.ActiveGlobalEvent.Value == ModifierType.SizeChange;
     }
 
     /// <summary>

@@ -58,7 +58,6 @@ public class PlayerController : NetworkBehaviour
     private SpriteRenderer playerSprite;
     private Canvas nameCanvas;
     
-    // Component references
     private SlimeController slimeController;
     private ProceduralCharacterAnimator animator;
 
@@ -96,7 +95,6 @@ public class PlayerController : NetworkBehaviour
             this.enabled = false; 
         }
         
-        // Subscribe to form changes for arrow color
         if (slimeController != null)
         {
             slimeController.isSlimeForm.OnValueChanged += OnFormChanged;
@@ -119,7 +117,6 @@ public class PlayerController : NetworkBehaviour
 
     private void OnFormChanged(bool oldValue, bool newValue)
     {
-        // Update arrow color based on form
         if (aimArrowRenderer != null)
         {
             aimArrowRenderer.color = newValue ? slimeArrowColor : wizardArrowColor;
@@ -174,7 +171,6 @@ public class PlayerController : NetworkBehaviour
             aimArrowRenderer.sortingOrder = playerSprite.sortingOrder + 1;
         }
         
-        // Set initial color based on form
         bool isSlime = slimeController != null && slimeController.isSlimeForm.Value;
         aimArrowRenderer.color = isSlime ? slimeArrowColor : wizardArrowColor;
     }
@@ -258,15 +254,12 @@ public class PlayerController : NetworkBehaviour
             transform.position += (Vector3)moveInput * currentSpeed * Time.deltaTime;
     }
 
-    /// <summary>
-    /// Calculate the current movement speed considering all modifiers
-    /// </summary>
     private float CalculateCurrentSpeed()
     {
         float speed = moveSpeed;
 
         // 1. Lucky Box Speed Boost
-        if (LuckyBox.ActiveGlobalEvent.Value == ModifierType.SpeedBoost)
+        if (LuckyBox.Instance != null && LuckyBox.Instance.ActiveGlobalEvent.Value == ModifierType.SpeedBoost)
         {
             speed *= speedBoostMultiplier;
         }
@@ -295,28 +288,24 @@ public class PlayerController : NetworkBehaviour
     {
         if (aimArrowInstance == null) return;
 
-        // Determine projectile settings based on form
         GameObject projectilePrefab = fireballPrefab;
         float projectileSpeed = fireballBaseSpeed;
         int projectileDamage = fireballBaseDamage;
         
-        // Check if we should use gloop (slime form)
         if (slimeController != null && slimeController.ShouldUseGloop())
         {
-            // Get settings INCLUDING SCALED DAMAGE from SlimeController
             var (gloopPrefab, gloopSpeed, gloopDamage) = slimeController.GetProjectileSettings(fireballPrefab, fireballBaseSpeed);
             projectilePrefab = gloopPrefab;
             projectileSpeed = gloopSpeed;
-            projectileDamage = gloopDamage; // This is already scaled based on slime size!
+            projectileDamage = gloopDamage;
         }
 
         // Apply Lucky Box speed boost to projectiles too
-        if (LuckyBox.ActiveGlobalEvent.Value == ModifierType.SpeedBoost)
+        if (LuckyBox.Instance != null && LuckyBox.Instance.ActiveGlobalEvent.Value == ModifierType.SpeedBoost)
         {
             projectileSpeed *= speedBoostMultiplier;
         }
 
-        // Fire the projectile with scaled damage
         Vector3 spawnPos = aimArrowInstance.transform.position;
         Quaternion spawnRot = aimArrowInstance.transform.rotation;
         
@@ -329,7 +318,6 @@ public class PlayerController : NetworkBehaviour
     {
         ulong shooterId = rpcParams.Receive.SenderClientId;
         
-        // Determine which prefab to use based on the shooter's form
         GameObject prefabToUse = fireballPrefab;
         SlimeController shooterSlime = null;
         int finalDamage = damage;
@@ -341,32 +329,27 @@ public class PlayerController : NetworkBehaviour
             {
                 var (gloopPrefab, _, scaledDamage) = shooterSlime.GetProjectileSettings(fireballPrefab, fireballBaseSpeed);
                 prefabToUse = gloopPrefab;
-                finalDamage = scaledDamage; // Use the SERVER's calculated scaled damage for security
+                finalDamage = scaledDamage;
             }
         }
 
-        // Spawn the projectile
         GameObject projectile = Instantiate(prefabToUse, position, rotation);
         
-        // Configure projectile - FIREBALL
         var fireballLogic = projectile.GetComponent<FireballLogic>();
         if (fireballLogic != null)
         {
             fireballLogic.SetSpeed(speed);
-            // Fireball damage is fixed, doesn't scale
         }
         
-        // Configure projectile - GLOOP (with scaled damage!)
         var gloopLogic = projectile.GetComponent<GloopLogic>();
         if (gloopLogic != null)
         {
             gloopLogic.SetSpeed(speed);
-            gloopLogic.SetDamage(finalDamage); // Pass the scaled damage!
+            gloopLogic.SetDamage(finalDamage);
             
             Debug.Log($"[PlayerController] Spawned Gloop with {finalDamage} damage (Scale: {shooterSlime?.CurrentScale:F2})");
         }
 
-        // Spawn with ownership
         projectile.GetComponent<NetworkObject>().SpawnWithOwnership(shooterId);
     }
 

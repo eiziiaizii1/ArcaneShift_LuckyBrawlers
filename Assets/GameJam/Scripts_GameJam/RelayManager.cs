@@ -78,6 +78,21 @@ public class RelayManager : MonoBehaviour
     }
 
     /// <summary>
+    /// Gets the appropriate connection type based on the platform.
+    /// WebGL requires WebSocket ("wss"), other platforms use DTLS ("dtls").
+    /// </summary>
+    private string GetConnectionType()
+    {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        Debug.Log("[RelayManager] WebGL platform detected - using WebSocket (wss) connection");
+        return "wss";
+#else
+        Debug.Log("[RelayManager] Non-WebGL platform - using DTLS connection");
+        return "dtls";
+#endif
+    }
+
+    /// <summary>
     /// HOST: Creates a relay allocation and starts the host.
     /// Returns the Join Code. Does NOT load scenes - let LobbyManager handle that.
     /// </summary>
@@ -92,8 +107,9 @@ public class RelayManager : MonoBehaviour
             string joinCode = await RelayService.Instance.GetJoinCodeAsync(allocation.AllocationId);
             Debug.Log($"[RelayManager] Relay allocation created. Join code: {joinCode}");
 
-            // 2. Configure Transport with DTLS
-            RelayServerData relayServerData = new RelayServerData(allocation, "dtls");
+            // 2. Configure Transport with appropriate connection type
+            string connectionType = GetConnectionType();
+            RelayServerData relayServerData = new RelayServerData(allocation, connectionType);
             
             if (NetworkManager.Singleton == null)
             {
@@ -109,7 +125,7 @@ public class RelayManager : MonoBehaviour
             }
 
             transport.SetRelayServerData(relayServerData);
-            Debug.Log("[RelayManager] Transport configured with relay server data.");
+            Debug.Log($"[RelayManager] Transport configured with relay server data using {connectionType}.");
 
             // 3. Inject Payload (Must be set BEFORE StartHost)
             NetworkManager.Singleton.NetworkConfig.ConnectionData = GetConnectionPayload();
@@ -135,7 +151,7 @@ public class RelayManager : MonoBehaviour
         }
         catch (Exception e)
         {
-            Debug.LogError($"[RelayManager] Unexpected error creating relay: {e.Message}");
+            Debug.LogError($"[RelayManager] Unexpected error creating relay: {e.Message}\nStack: {e.StackTrace}");
             return null;
         }
     }
@@ -153,8 +169,9 @@ public class RelayManager : MonoBehaviour
             JoinAllocation joinAllocation = await RelayService.Instance.JoinAllocationAsync(joinCode);
             Debug.Log("[RelayManager] Join allocation successful.");
 
-            // 2. Configure transport with DTLS
-            RelayServerData relayServerData = new RelayServerData(joinAllocation, "dtls");
+            // 2. Configure transport with appropriate connection type
+            string connectionType = GetConnectionType();
+            RelayServerData relayServerData = new RelayServerData(joinAllocation, connectionType);
             
             if (NetworkManager.Singleton == null)
             {
@@ -170,7 +187,7 @@ public class RelayManager : MonoBehaviour
             }
 
             transport.SetRelayServerData(relayServerData);
-            Debug.Log("[RelayManager] Transport configured with relay server data.");
+            Debug.Log($"[RelayManager] Transport configured with relay server data using {connectionType}.");
 
             // 3. Inject payload (Must be set BEFORE StartClient)
             NetworkManager.Singleton.NetworkConfig.ConnectionData = GetConnectionPayload();
@@ -196,7 +213,7 @@ public class RelayManager : MonoBehaviour
         }
         catch (Exception e)
         {
-            Debug.LogError($"[RelayManager] Unexpected error joining relay: {e.Message}");
+            Debug.LogError($"[RelayManager] Unexpected error joining relay: {e.Message}\nStack: {e.StackTrace}");
             return false;
         }
     }

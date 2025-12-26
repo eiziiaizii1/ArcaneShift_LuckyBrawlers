@@ -13,7 +13,7 @@ PlayerSettings:
   useOnDemandResources: 0
   accelerometerFrequency: 60
   companyName: DefaultCompany
-  productName: EvrenHodja_w4
+  productName: 'Arcane Brawlers - Lucky Shift '
   defaultCursor: {fileID: 0}
   cursorHotspot: {x: 0, y: 0}
   m_SplashScreenBackgroundColor: {r: 0.13725491, g: 0.12156863, b: 0.1254902, a: 1}
@@ -679,11 +679,11 @@ PlayerSettings:
   captureStartupLogs: {}
   activeInputHandler: 2
   windowsGamepadBackendHint: 0
-  cloudProjectId: 957eceeb-7f6b-4def-a4b1-77c35d516df4
+  cloudProjectId: 57e2e447-bc7a-48dd-8101-cf89ca65353d
   framebufferDepthMemorylessMode: 0
   qualitySettingsNames: []
-  projectName: EvrenHodja_w4
-  organizationId: unonan
+  projectName: 'Arcane Brawlers - Lucky Shift '
+  organizationId: eiziiaizii1
   cloudEnabled: 0
   legacyClampBlendShapeWeights: 0
   hmiLoadingImage: {fileID: 0}
@@ -692,4 +692,3 @@ PlayerSettings:
   insecureHttpOption: 0
   androidVulkanDenyFilterList: []
   androidVulkanAllowFilterList: []
-  
