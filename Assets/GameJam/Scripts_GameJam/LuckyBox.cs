@@ -429,10 +429,10 @@ public class LuckyBox : NetworkBehaviour
     {
         return eventType switch
         {
-            ModifierType.SpeedBoost => "⚡ SPEED BOOST!",
-            ModifierType.ReverseControls => "🔄 REVERSE!",
-            ModifierType.SlimeShift => "🟢 SLIME SHIFT!",
-            ModifierType.SizeChange => "📏 SIZE CHANGE!",
+            ModifierType.SpeedBoost => "SPEED BOOST!",
+            ModifierType.ReverseControls => "REVERSE!",
+            ModifierType.SlimeShift => "SLIME SHIFT!",
+            ModifierType.SizeChange => "SIZE CHANGE!",
             _ => "NONE"
         };
     }

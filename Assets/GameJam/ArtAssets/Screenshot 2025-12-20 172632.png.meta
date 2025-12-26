@@ -1,10 +1,10 @@
 fileFormatVersion: 2
-guid: 54c995660f02a9647bb925e2806d1a27
+guid: d663a501106c66d48a9bad7b0b301260
 TextureImporter:
   internalIDToNameTable:
   - first:
-      213: -2054036431684599323
-    second: Gemini_Generated_Image_umwvwzumwvwzumwv_0
+      213: 3333228772736960444
+    second: Screenshot 2025-12-20 172632_0
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -37,7 +37,7 @@ TextureImporter:
   maxTextureSize: 2048
   textureSettings:
     serializedVersion: 2
-    filterMode: 2
+    filterMode: 1
     aniso: 1
     mipBias: 0
     wrapU: 1
@@ -46,7 +46,7 @@ TextureImporter:
   nPOTScale: 0
   lightmap: 0
   compressionQuality: 50
-  spriteMode: 2
+  spriteMode: 1
   spriteExtrude: 1
   spriteMeshType: 1
   alignment: 0
@@ -72,7 +72,7 @@ TextureImporter:
   platformSettings:
   - serializedVersion: 4
     buildTarget: DefaultTexturePlatform
-    maxTextureSize: 512
+    maxTextureSize: 2048
     resizeAlgorithm: 0
     textureFormat: -1
     textureCompression: 1
@@ -113,13 +113,13 @@ TextureImporter:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: Gemini_Generated_Image_umwvwzumwvwzumwv_0
+      name: Screenshot 2025-12-20 172632_0
       rect:
         serializedVersion: 2
         x: 0
         y: 0
-        width: 2816
-        height: 1536
+        width: 289
+        height: 288
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -128,8 +128,8 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 5e18ab58fb89e73e0800000000000000
-      internalID: -2054036431684599323
+      spriteID: cb7091a98e1024e20800000000000000
+      internalID: 3333228772736960444
       vertices: []
       indices: 
       edges: []
@@ -148,7 +148,7 @@ TextureImporter:
     spriteCustomMetadata:
       entries: []
     nameFileIdTable:
-      Gemini_Generated_Image_umwvwzumwvwzumwv_0: -2054036431684599323
+      Screenshot 2025-12-20 172632_0: 3333228772736960444
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 
