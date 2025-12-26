@@ -1,8 +1,8 @@
+using System.Collections;
+using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.UI;
-using System.Collections;
-using System.Collections.Generic;
 using TMPro;
 
 /// <summary>
@@ -12,7 +12,7 @@ using TMPro;
 /// - SpeedBoost: All players move 2x faster
 /// - ReverseControls: All players have inverted controls  
 /// - SlimeShift: ALL players transform into Slime form
-/// - SizeChange: All players scale up/down (with separate visual/collider scaling)
+/// - SizeChange: All players scale to specific values (0.25x, 0.5x, 1.5x, 2x)
 /// 
 /// Place in GameScene. Server-authoritative.
 /// </summary>
@@ -50,7 +50,7 @@ public class LuckyBox : NetworkBehaviour
     public NetworkVariable<int> EventTimer = new NetworkVariable<int>(0);
 
     /// <summary>
-    /// Size multiplier for SizeChange event (0.5 to 1.5 typically)
+    /// Size multiplier for SizeChange event (0.25, 0.5, 1.5, or 2.0)
     /// </summary>
     public NetworkVariable<float> SizeMultiplier = new NetworkVariable<float>(
         1.0f,
@@ -63,7 +63,7 @@ public class LuckyBox : NetworkBehaviour
     #region Inspector Fields
 
     [Header("Event Timing")]
-    [SerializeField] private int timeBetweenEvents = 4;
+    [SerializeField] private int timeBetweenEvents = 15;  // GDD says 15-20 seconds
     [SerializeField] private int eventDuration = 10;
 
     [Header("Modifier Weights")]
@@ -73,11 +73,8 @@ public class LuckyBox : NetworkBehaviour
     [SerializeField] private float sizeChangeWeight = 1f;
 
     [Header("Size Change Settings")]
-    [Tooltip("Minimum size multiplier (smaller = harder to hit but weaker)")]
-    [SerializeField] private float minSizeMultiplier = 0.5f;
-    
-    [Tooltip("Maximum size multiplier (larger = easier to hit but stronger presence)")]
-    [SerializeField] private float maxSizeMultiplier = 1.5f;
+    [Tooltip("Specific scale values to choose from")]
+    [SerializeField] private float[] scaleOptions = new float[] { 0.25f, 0.5f, 1.5f, 2f };
 
     [Header("UI References")]
     [SerializeField] private TextMeshProUGUI eventDisplayText;
@@ -87,7 +84,6 @@ public class LuckyBox : NetworkBehaviour
     [Header("Audio/VFX")]
     [SerializeField] private GameObject eventActivationVFX;
     [SerializeField] private AudioClip eventStartSound;
-    [SerializeField] private AudioClip eventTriggerSound;
     [SerializeField] private AudioClip eventEndSound;
     [SerializeField] private AudioClip countdownTickSound;
 
@@ -163,6 +159,9 @@ public class LuckyBox : NetworkBehaviour
             ActiveGlobalEvent.Value = ModifierType.None;
             SizeMultiplier.Value = 1.0f;
             
+            // Reset all player scales when event ends
+            ResetAllPlayerScales();
+            
             for (int i = timeBetweenEvents; i > 0; i--)
             {
                 EventTimer.Value = i;
@@ -186,10 +185,10 @@ public class LuckyBox : NetworkBehaviour
             
             if (selectedEvent == ModifierType.SizeChange)
             {
-                // Set size multiplier BEFORE activating event
-                float newSize = Random.Range(minSizeMultiplier, maxSizeMultiplier);
+                // Pick a random scale from the specific options
+                float newSize = scaleOptions[Random.Range(0, scaleOptions.Length)];
                 SizeMultiplier.Value = newSize;
-                Debug.Log($"[LuckyBox] SizeChange multiplier set to: {newSize:F2}x");
+                Debug.Log($"[LuckyBox] SizeChange selected: {newSize}x");
             }
 
             // Activate event
@@ -209,12 +208,6 @@ public class LuckyBox : NetworkBehaviour
             // === END EVENT ===
             ApplyEventToAllPlayers(selectedEvent, false);
             PlayEventEndClientRpc();
-            
-            // Reset size after SizeChange ends
-            if (selectedEvent == ModifierType.SizeChange)
-            {
-                SizeMultiplier.Value = 1.0f;
-            }
             
             Debug.Log($"[LuckyBox] Event ended: {selectedEvent}");
         }
@@ -258,9 +251,7 @@ public class LuckyBox : NetworkBehaviour
                     break;
                     
                 case ModifierType.SizeChange:
-                    // SizeChange is handled by SizeChangeHandler listening to SizeMultiplier
-                    // But we can notify it to refresh
-                    NotifySizeChange(playerObj, activate);
+                    ApplySizeChange(playerObj, activate);
                     break;
                     
                 // SpeedBoost and ReverseControls are handled by PlayerController reading ActiveGlobalEvent
@@ -304,18 +295,32 @@ public class LuckyBox : NetworkBehaviour
         }
     }
 
-    private void NotifySizeChange(GameObject playerObj, bool activate)
+    private void ApplySizeChange(GameObject playerObj, bool activate)
     {
         SizeChangeHandler sizeHandler = playerObj.GetComponent<SizeChangeHandler>();
         if (sizeHandler != null)
         {
             if (activate)
             {
-                sizeHandler.RefreshScale();
+                sizeHandler.ApplyLuckyBoxScale(SizeMultiplier.Value);
             }
             else
             {
-                sizeHandler.ResetToBaseScale();
+                sizeHandler.ResetScale();
+            }
+        }
+    }
+
+    private void ResetAllPlayerScales()
+    {
+        foreach (var client in NetworkManager.Singleton.ConnectedClientsList)
+        {
+            if (client.PlayerObject == null) continue;
+            
+            SizeChangeHandler sizeHandler = client.PlayerObject.GetComponent<SizeChangeHandler>();
+            if (sizeHandler != null)
+            {
+                sizeHandler.ResetScale();
             }
         }
     }
@@ -332,11 +337,51 @@ public class LuckyBox : NetworkBehaviour
     private void OnEventChanged(ModifierType oldValue, ModifierType newValue)
     {
         RefreshUI();
+        
+        // Client-side: Apply size change when event changes
+        if (newValue == ModifierType.SizeChange)
+        {
+            ApplySizeChangeToLocalPlayer(true);
+        }
+        else if (oldValue == ModifierType.SizeChange && newValue != ModifierType.SizeChange)
+        {
+            ApplySizeChangeToLocalPlayer(false);
+        }
     }
 
     private void OnSizeMultiplierChanged(float oldValue, float newValue)
     {
         RefreshUI();
+        
+        // Client-side: Apply new size when multiplier changes during active event
+        if (ActiveGlobalEvent.Value == ModifierType.SizeChange)
+        {
+            ApplySizeChangeToLocalPlayer(true);
+        }
+    }
+
+    private void ApplySizeChangeToLocalPlayer(bool activate)
+    {
+        // Find local player and apply scale
+        if (NetworkManager.Singleton == null) return;
+        
+        foreach (var client in NetworkManager.Singleton.ConnectedClientsList)
+        {
+            if (client.PlayerObject == null) continue;
+            
+            SizeChangeHandler sizeHandler = client.PlayerObject.GetComponent<SizeChangeHandler>();
+            if (sizeHandler != null)
+            {
+                if (activate)
+                {
+                    sizeHandler.ApplyLuckyBoxScale(SizeMultiplier.Value);
+                }
+                else
+                {
+                    sizeHandler.ResetScale();
+                }
+            }
+        }
     }
 
     private void RefreshUI()
@@ -363,7 +408,7 @@ public class LuckyBox : NetworkBehaviour
             {
                 float size = SizeMultiplier.Value;
                 string sizeDesc = size < 1f ? "SHRINK" : "GROW";
-                extra = $" ({size:F1}x {sizeDesc})";
+                extra = $" ({size}x {sizeDesc})";
             }
             
             eventDisplayText.text = $"{eventName}{extra} ({timer}s)";
@@ -419,11 +464,6 @@ public class LuckyBox : NetworkBehaviour
         if (eventStartSound != null && audioSource != null)
         {
             audioSource.PlayOneShot(eventStartSound);
-        }
-
-        if (eventTriggerSound != null && audioSource != null)
-        {
-            audioSource.PlayOneShot(eventTriggerSound);
         }
     }
 

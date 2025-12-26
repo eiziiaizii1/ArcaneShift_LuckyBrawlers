@@ -2,19 +2,15 @@ using Unity.Netcode;
 using UnityEngine;
 
 /// <summary>
-/// Handles SizeChange LuckyBox event scaling with separate modifiers for:
-/// - Wizard visual
-/// - Slime visual  
-/// - Colliders
+/// SizeChangeHandler - Fixed Version 2
 /// 
-/// IMPORTANT: This script does NOT control slime adaptive scaling (damage → smaller).
-/// That is handled by SlimeController. This script only handles the LuckyBox SizeChange event
-/// and MULTIPLIES on top of the adaptive scaling, not replacing it.
+/// Handles the LuckyBox SizeChange event by:
+/// 1. Telling ProceduralCharacterAnimator the scale multiplier (it handles sprite scaling)
+/// 2. Directly scaling the collider on the parent object
 /// 
-/// Scaling Priority:
-/// 1. Base Scale (from prefab)
-/// 2. × Adaptive Scale (SlimeController - damage based, slime only)
-/// 3. × LuckyBox SizeChange (this script - event based, all players)
+/// This prevents the "scale fight" where animator was overwriting our scale changes.
+/// 
+/// Scale values: 0.25x, 0.5x, 1.5x, 2x (set by LuckyBox)
 /// 
 /// Attach to Player prefab.
 /// </summary>
@@ -22,54 +18,33 @@ public class SizeChangeHandler : NetworkBehaviour
 {
     #region Inspector Fields
 
-    [Header("Visual References")]
-    [SerializeField] private Transform wizardVisual;
-    [SerializeField] private Transform slimeVisual;
+    [Header("Collider Reference (Auto-found if not assigned)")]
+    [SerializeField] private Collider2D playerCollider;
 
-    [Header("Collider References")]
-    [SerializeField] private Collider2D mainCollider;
-
-    [Header("=== WIZARD SCALING (LuckyBox Event Only) ===")]
-    [Tooltip("How much the Wizard visual scales during SizeChange event")]
-    [SerializeField] private float wizardVisualScaleMultiplier = 1.0f;
-    
-    [Tooltip("How much the Wizard collider scales during SizeChange event")]
-    [SerializeField] private float wizardColliderScaleMultiplier = 0.9f;
-
-    [Header("=== SLIME SCALING (LuckyBox Event Only) ===")]
-    [Tooltip("How much the Slime visual scales during SizeChange event (ON TOP of adaptive scaling)")]
-    [SerializeField] private float slimeVisualScaleMultiplier = 1.1f;
-    
-    [Tooltip("How much the Slime collider scales during SizeChange event (ON TOP of adaptive scaling)")]
-    [SerializeField] private float slimeColliderScaleMultiplier = 0.85f;
-
-    [Header("=== GENERAL SETTINGS ===")]
-    [SerializeField] private float minScale = 0.3f;
-    [SerializeField] private float maxScale = 2.5f;
-    [SerializeField] private float scaleTransitionSpeed = 8f;
+    [Header("Scale Settings")]
+    [SerializeField] private float scaleTransitionSpeed = 10f;
 
     #endregion
 
     #region Private Fields
 
-    private Vector3 wizardBaseScale;
-    private Vector3 slimeBaseScale;
+    // Original collider sizes
+    private Vector2 originalBoxSize;
+    private float originalCircleRadius;
+    private Vector2 originalCapsuleSize;
     
-    private Vector2 baseBoxColliderSize;
-    private float baseCircleColliderRadius;
-    private Vector2 baseCapsuleColliderSize;
+    // Current target scale from LuckyBox
+    private float targetScaleMultiplier = 1f;
+    private float currentScaleMultiplier = 1f;
     
-    private float currentLuckyBoxMultiplier = 1f;
-    private float targetLuckyBoxMultiplier = 1f;
-    
-    private SlimeController slimeController;
-    private ProceduralCharacterAnimator animator;
-    
+    // Collider type references
     private BoxCollider2D boxCollider;
     private CircleCollider2D circleCollider;
     private CapsuleCollider2D capsuleCollider;
-    
-    private float lastAdaptiveScale = 1f;
+
+    // References
+    private SlimeController slimeController;
+    private ProceduralCharacterAnimator animator;
 
     #endregion
 
@@ -77,72 +52,67 @@ public class SizeChangeHandler : NetworkBehaviour
 
     private void Awake()
     {
-        if (wizardVisual == null)
-            wizardVisual = transform.Find("WizardVisual");
+        // Auto-find collider
+        if (playerCollider == null)
+            playerCollider = GetComponent<Collider2D>();
         
-        if (slimeVisual == null)
-            slimeVisual = transform.Find("SlimeVisual");
-        
-        if (mainCollider == null)
-            mainCollider = GetComponent<Collider2D>();
-        
+        // Get references
         slimeController = GetComponent<SlimeController>();
         animator = GetComponent<ProceduralCharacterAnimator>();
         
-        if (wizardVisual != null)
-            wizardBaseScale = wizardVisual.localScale;
+        // Store original collider size
+        StoreOriginalColliderSize();
         
-        if (slimeVisual != null)
-            slimeBaseScale = slimeVisual.localScale;
-        
-        CaptureBaseColliderSize();
+        Debug.Log($"[SizeChangeHandler] Initialized - Collider: {playerCollider != null}, Animator: {animator != null}");
     }
 
-    private void CaptureBaseColliderSize()
+    private void StoreOriginalColliderSize()
     {
-        if (mainCollider == null) return;
+        if (playerCollider == null) return;
         
-        boxCollider = mainCollider as BoxCollider2D;
-        circleCollider = mainCollider as CircleCollider2D;
-        capsuleCollider = mainCollider as CapsuleCollider2D;
+        boxCollider = playerCollider as BoxCollider2D;
+        circleCollider = playerCollider as CircleCollider2D;
+        capsuleCollider = playerCollider as CapsuleCollider2D;
         
         if (boxCollider != null)
         {
-            baseBoxColliderSize = boxCollider.size;
+            originalBoxSize = boxCollider.size;
+            Debug.Log($"[SizeChangeHandler] BoxCollider2D original size: {originalBoxSize}");
         }
         else if (circleCollider != null)
         {
-            baseCircleColliderRadius = circleCollider.radius;
+            originalCircleRadius = circleCollider.radius;
+            Debug.Log($"[SizeChangeHandler] CircleCollider2D original radius: {originalCircleRadius}");
         }
         else if (capsuleCollider != null)
         {
-            baseCapsuleColliderSize = capsuleCollider.size;
+            originalCapsuleSize = capsuleCollider.size;
+            Debug.Log($"[SizeChangeHandler] CapsuleCollider2D original size: {originalCapsuleSize}");
         }
     }
 
     public override void OnNetworkSpawn()
     {
-        // Subscribe to LuckyBox events only
+        // Subscribe to LuckyBox size changes
         if (LuckyBox.Instance != null)
         {
             LuckyBox.Instance.SizeMultiplier.OnValueChanged += OnLuckyBoxSizeChanged;
-            LuckyBox.Instance.ActiveGlobalEvent.OnValueChanged += OnGlobalEventChanged;
+            LuckyBox.Instance.ActiveGlobalEvent.OnValueChanged += OnEventChanged;
+            
+            // Check if size change is already active
+            if (LuckyBox.Instance.ActiveGlobalEvent.Value == ModifierType.SizeChange)
+            {
+                ApplyLuckyBoxScale(LuckyBox.Instance.SizeMultiplier.Value);
+            }
         }
         
         // Subscribe to slime adaptive scale changes
         if (slimeController != null)
         {
             slimeController.currentScale.OnValueChanged += OnAdaptiveScaleChanged;
-            slimeController.isSlimeForm.OnValueChanged += OnFormChanged;
         }
         
-        // Initial state
-        targetLuckyBoxMultiplier = LuckyBox.IsSizeChangeActive() ? LuckyBox.GetSizeMultiplier() : 1f;
-        currentLuckyBoxMultiplier = targetLuckyBoxMultiplier;
-        
-        ApplyAllScaling();
-        
-        Debug.Log("[SizeChangeHandler] Spawned and subscribed to events");
+        Debug.Log("[SizeChangeHandler] Network spawned");
     }
 
     public override void OnNetworkDespawn()
@@ -150,28 +120,29 @@ public class SizeChangeHandler : NetworkBehaviour
         if (LuckyBox.Instance != null)
         {
             LuckyBox.Instance.SizeMultiplier.OnValueChanged -= OnLuckyBoxSizeChanged;
-            LuckyBox.Instance.ActiveGlobalEvent.OnValueChanged -= OnGlobalEventChanged;
+            LuckyBox.Instance.ActiveGlobalEvent.OnValueChanged -= OnEventChanged;
         }
         
         if (slimeController != null)
         {
             slimeController.currentScale.OnValueChanged -= OnAdaptiveScaleChanged;
-            slimeController.isSlimeForm.OnValueChanged -= OnFormChanged;
         }
     }
 
     private void Update()
     {
-        if (!Mathf.Approximately(currentLuckyBoxMultiplier, targetLuckyBoxMultiplier))
+        // Smoothly interpolate to target scale
+        if (!Mathf.Approximately(currentScaleMultiplier, targetScaleMultiplier))
         {
-            currentLuckyBoxMultiplier = Mathf.Lerp(currentLuckyBoxMultiplier, targetLuckyBoxMultiplier, scaleTransitionSpeed * Time.deltaTime);
+            currentScaleMultiplier = Mathf.Lerp(currentScaleMultiplier, targetScaleMultiplier, scaleTransitionSpeed * Time.deltaTime);
             
-            if (Mathf.Abs(currentLuckyBoxMultiplier - targetLuckyBoxMultiplier) < 0.001f)
+            // Snap if close enough
+            if (Mathf.Abs(currentScaleMultiplier - targetScaleMultiplier) < 0.01f)
             {
-                currentLuckyBoxMultiplier = targetLuckyBoxMultiplier;
+                currentScaleMultiplier = targetScaleMultiplier;
             }
             
-            ApplyAllScaling();
+            ApplyCurrentScale();
         }
     }
 
@@ -183,171 +154,122 @@ public class SizeChangeHandler : NetworkBehaviour
     {
         if (LuckyBox.Instance != null && LuckyBox.Instance.ActiveGlobalEvent.Value == ModifierType.SizeChange)
         {
-            targetLuckyBoxMultiplier = newValue;
-            Debug.Log($"[SizeChangeHandler] LuckyBox size changed: {newValue:F2}x");
+            targetScaleMultiplier = newValue;
+            Debug.Log($"[SizeChangeHandler] LuckyBox size changed to: {newValue}x");
         }
     }
 
-    private void OnGlobalEventChanged(ModifierType oldEvent, ModifierType newEvent)
+    private void OnEventChanged(ModifierType oldEvent, ModifierType newEvent)
     {
         if (newEvent == ModifierType.SizeChange)
         {
-            targetLuckyBoxMultiplier = LuckyBox.GetSizeMultiplier();
-            Debug.Log($"[SizeChangeHandler] SizeChange event started: {targetLuckyBoxMultiplier:F2}x");
+            targetScaleMultiplier = LuckyBox.Instance.SizeMultiplier.Value;
+            Debug.Log($"[SizeChangeHandler] SizeChange event started: {targetScaleMultiplier}x");
         }
         else if (oldEvent == ModifierType.SizeChange)
         {
-            targetLuckyBoxMultiplier = 1f;
-            Debug.Log("[SizeChangeHandler] SizeChange event ended");
+            targetScaleMultiplier = 1f;
+            Debug.Log("[SizeChangeHandler] SizeChange event ended, resetting to 1x");
         }
     }
 
-    private void OnAdaptiveScaleChanged(float oldScale, float newScale)
+    private void OnAdaptiveScaleChanged(float oldValue, float newValue)
     {
-        lastAdaptiveScale = newScale;
-        ApplyAllScaling();
-        Debug.Log($"[SizeChangeHandler] Adaptive scale changed: {newScale:F2}");
-    }
-
-    private void OnFormChanged(bool oldForm, bool newForm)
-    {
-        ApplyAllScaling();
-        Debug.Log($"[SizeChangeHandler] Form changed to {(newForm ? "Slime" : "Wizard")}");
+        // When slime adaptive scale changes, refresh everything
+        ApplyCurrentScale();
+        Debug.Log($"[SizeChangeHandler] Adaptive scale changed: {newValue}");
     }
 
     #endregion
 
     #region Scale Application
 
-    private void ApplyAllScaling()
+    /// <summary>
+    /// Apply scale from LuckyBox event
+    /// </summary>
+    public void ApplyLuckyBoxScale(float scaleMultiplier)
     {
-        bool isSlime = IsCurrentlySlime();
-        
-        if (isSlime)
-        {
-            ApplySlimeScaling();
-        }
-        else
-        {
-            ApplyWizardScaling();
-        }
-        
-        ApplyColliderScaling(isSlime);
+        targetScaleMultiplier = scaleMultiplier;
+        Debug.Log($"[SizeChangeHandler] ApplyLuckyBoxScale: {scaleMultiplier}x");
     }
 
-    private void ApplyWizardScaling()
+    /// <summary>
+    /// Reset scale back to original
+    /// </summary>
+    public void ResetScale()
     {
-        if (wizardVisual == null) return;
-        if (!wizardVisual.gameObject.activeSelf) return;
-        
-        float luckyBoxScale = currentLuckyBoxMultiplier * wizardVisualScaleMultiplier;
-        luckyBoxScale = Mathf.Clamp(luckyBoxScale, minScale, maxScale);
-        
-        Vector3 finalScale = wizardBaseScale * luckyBoxScale;
-        wizardVisual.localScale = finalScale;
+        targetScaleMultiplier = 1f;
+        Debug.Log("[SizeChangeHandler] ResetScale called");
     }
 
-    private void ApplySlimeScaling()
+    /// <summary>
+    /// Apply the current scale multiplier
+    /// </summary>
+    private void ApplyCurrentScale()
     {
-        if (slimeVisual == null) return;
-        if (!slimeVisual.gameObject.activeSelf) return;
+        // Calculate total scale (LuckyBox × Adaptive for slime)
+        float totalScale = GetTotalScale();
         
-        float adaptiveScale = 1f;
-        if (slimeController != null)
+        // Tell the animator to use this scale multiplier
+        // The animator will apply it to the visuals
+        if (animator != null)
         {
-            adaptiveScale = slimeController.CurrentScale;
+            animator.SetExternalScaleMultiplier(totalScale);
         }
         
-        float luckyBoxScale = currentLuckyBoxMultiplier * slimeVisualScaleMultiplier;
-        float totalScale = adaptiveScale * luckyBoxScale;
-        totalScale = Mathf.Clamp(totalScale, minScale, maxScale);
-        
-        Vector3 finalScale = slimeBaseScale * totalScale;
-        slimeVisual.localScale = finalScale;
-        
-        if (Mathf.Abs(adaptiveScale - lastAdaptiveScale) > 0.01f || 
-            Mathf.Abs(currentLuckyBoxMultiplier - 1f) > 0.01f)
-        {
-            Debug.Log($"[SizeChangeHandler] Slime scale: Base × {adaptiveScale:F2} (adaptive) × {luckyBoxScale:F2} (lucky) = {totalScale:F2}");
-        }
-        
-        lastAdaptiveScale = adaptiveScale;
+        // Scale the collider directly
+        ScaleCollider(totalScale);
     }
 
-    private void ApplyColliderScaling(bool isSlime)
+    private void ScaleCollider(float totalMultiplier)
     {
-        if (mainCollider == null) return;
-        
-        float adaptiveScale = 1f;
-        if (isSlime && slimeController != null)
-        {
-            adaptiveScale = slimeController.CurrentScale;
-        }
-        
-        float formColliderMult = isSlime ? slimeColliderScaleMultiplier : wizardColliderScaleMultiplier;
-        
-        float totalColliderScale = adaptiveScale * currentLuckyBoxMultiplier * formColliderMult;
-        totalColliderScale = Mathf.Clamp(totalColliderScale, minScale, maxScale);
+        if (playerCollider == null) return;
         
         if (boxCollider != null)
         {
-            boxCollider.size = baseBoxColliderSize * totalColliderScale;
+            boxCollider.size = originalBoxSize * totalMultiplier;
         }
         else if (circleCollider != null)
         {
-            circleCollider.radius = baseCircleColliderRadius * totalColliderScale;
+            circleCollider.radius = originalCircleRadius * totalMultiplier;
         }
         else if (capsuleCollider != null)
         {
-            capsuleCollider.size = baseCapsuleColliderSize * totalColliderScale;
+            capsuleCollider.size = originalCapsuleSize * totalMultiplier;
         }
     }
 
     #endregion
 
-    #region Helpers
+    #region Public API
 
-    private bool IsCurrentlySlime()
+    /// <summary>
+    /// Get current LuckyBox scale multiplier
+    /// </summary>
+    public float CurrentLuckyBoxScale => currentScaleMultiplier;
+
+    /// <summary>
+    /// Get total scale (LuckyBox × Adaptive for slime)
+    /// </summary>
+    public float GetTotalScale()
     {
-        if (slimeController != null)
-            return slimeController.IsSlime;
+        float total = currentScaleMultiplier;
         
-        if (animator != null)
-            return animator.IsCurrentlySlime;
+        // If slime, multiply by adaptive scale
+        if (slimeController != null && slimeController.IsSlime)
+        {
+            total *= slimeController.CurrentScale;
+        }
         
-        return false;
+        return total;
     }
 
+    /// <summary>
+    /// Force refresh the scale
+    /// </summary>
     public void RefreshScale()
     {
-        ApplyAllScaling();
-    }
-
-    public void ResetToBaseScale()
-    {
-        targetLuckyBoxMultiplier = 1f;
-    }
-
-    #endregion
-
-    #region Public Properties
-
-    public float CurrentLuckyBoxMultiplier => currentLuckyBoxMultiplier;
-    
-    public float GetTotalVisualScale()
-    {
-        bool isSlime = IsCurrentlySlime();
-        float adaptive = (isSlime && slimeController != null) ? slimeController.CurrentScale : 1f;
-        float formMult = isSlime ? slimeVisualScaleMultiplier : wizardVisualScaleMultiplier;
-        return adaptive * currentLuckyBoxMultiplier * formMult;
-    }
-    
-    public float GetTotalColliderScale()
-    {
-        bool isSlime = IsCurrentlySlime();
-        float adaptive = (isSlime && slimeController != null) ? slimeController.CurrentScale : 1f;
-        float formMult = isSlime ? slimeColliderScaleMultiplier : wizardColliderScaleMultiplier;
-        return adaptive * currentLuckyBoxMultiplier * formMult;
+        ApplyCurrentScale();
     }
 
     #endregion
@@ -356,38 +278,43 @@ public class SizeChangeHandler : NetworkBehaviour
 
 #if UNITY_EDITOR
     [Header("Debug")]
-    [SerializeField] private bool showDebugInfo = true;
+    [SerializeField] private bool showDebugGizmos = true;
 
     private void OnDrawGizmosSelected()
     {
-        if (!showDebugInfo || !Application.isPlaying) return;
+        if (!showDebugGizmos || !Application.isPlaying) return;
         
-        if (mainCollider != null)
+        if (playerCollider != null)
         {
             Gizmos.color = Color.green;
-            Gizmos.DrawWireCube(mainCollider.bounds.center, mainCollider.bounds.size);
+            Gizmos.DrawWireCube(playerCollider.bounds.center, playerCollider.bounds.size);
         }
         
-        bool isSlime = IsCurrentlySlime();
-        float adaptive = (isSlime && slimeController != null) ? slimeController.CurrentScale : 1f;
-        
         Vector3 labelPos = transform.position + Vector3.up * 2f;
-        string info = $"Form: {(isSlime ? "Slime" : "Wizard")}\n" +
+        bool isSlime = slimeController != null && slimeController.IsSlime;
+        float adaptive = isSlime ? slimeController.CurrentScale : 1f;
+        
+        string info = $"LuckyBox: {currentScaleMultiplier:F2}x\n" +
                       $"Adaptive: {adaptive:F2}x\n" +
-                      $"LuckyBox: {currentLuckyBoxMultiplier:F2}x\n" +
-                      $"Total Visual: {GetTotalVisualScale():F2}x";
+                      $"Total: {GetTotalScale():F2}x";
         
         UnityEditor.Handles.Label(labelPos, info);
     }
 
-    [ContextMenu("Test LuckyBox 0.5x")]
-    private void TestHalfSize() { targetLuckyBoxMultiplier = 0.5f; }
+    [ContextMenu("Test Scale 0.25x")]
+    private void TestQuarterScale() { ApplyLuckyBoxScale(0.25f); }
 
-    [ContextMenu("Test LuckyBox 1.5x")]
-    private void TestLargeSize() { targetLuckyBoxMultiplier = 1.5f; }
+    [ContextMenu("Test Scale 0.5x")]
+    private void TestHalfScale() { ApplyLuckyBoxScale(0.5f); }
 
-    [ContextMenu("Reset LuckyBox Size")]
-    private void TestResetSize() { targetLuckyBoxMultiplier = 1f; }
+    [ContextMenu("Test Scale 1.5x")]
+    private void TestOneAndHalfScale() { ApplyLuckyBoxScale(1.5f); }
+
+    [ContextMenu("Test Scale 2x")]
+    private void TestDoubleScale() { ApplyLuckyBoxScale(2f); }
+
+    [ContextMenu("Reset Scale")]
+    private void TestResetScale() { ResetScale(); }
 #endif
 
     #endregion

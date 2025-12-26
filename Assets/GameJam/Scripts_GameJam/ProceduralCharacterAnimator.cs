@@ -4,23 +4,17 @@ using UnityEngine;
 /// <summary>
 /// Procedural animation system for dual-form characters (Wizard/Slime).
 /// 
-/// This is the MASTER controller for visual state. Other scripts (Health, SlimeController)
-/// communicate with this script to change visibility/form rather than directly manipulating
-/// the visual GameObjects. This prevents conflicts during death/respawn/form-change sequences.
+/// FIXED VERSION: Now respects external scale multipliers from SizeChangeHandler
 /// 
-/// Visual State Priority:
-/// 1. Master Visibility (controlled by Health) - if false, NOTHING shows
-/// 2. Form State (controlled by SlimeController) - determines wizard vs slime
+/// The animator applies its animation scales ON TOP of the external scale multiplier.
+/// This prevents the "scale fight" where animator would overwrite LuckyBox scaling.
 /// </summary>
 public class ProceduralCharacterAnimator : NetworkBehaviour
 {
     #region Inspector Fields
     
     [Header("Visual References")]
-    [Tooltip("Child object containing the Wizard sprite")]
     [SerializeField] private Transform wizardVisual;
-    
-    [Tooltip("Child object containing the Slime sprite")]
     [SerializeField] private Transform slimeVisual;
 
     [Header("Velocity Source")]
@@ -73,7 +67,7 @@ public class ProceduralCharacterAnimator : NetworkBehaviour
 
     #region Private State
 
-    // Base transforms
+    // Base transforms (original prefab scale)
     private Vector3 wizardBasePosition;
     private Vector3 wizardBaseScale;
     private Vector3 slimeBasePosition;
@@ -91,9 +85,13 @@ public class ProceduralCharacterAnimator : NetworkBehaviour
     private Vector2 smoothedVelocity;
     private float currentSpeed;
 
-    // === MASTER VISIBILITY STATE ===
+    // Master visibility state
     private bool masterVisibility = true;
     private bool currentFormIsSlime = false;
+
+    // === EXTERNAL SCALE MULTIPLIER ===
+    // This is set by SizeChangeHandler and incorporated into our scale calculations
+    private float externalScaleMultiplier = 1f;
 
     #endregion
 
@@ -104,14 +102,13 @@ public class ProceduralCharacterAnimator : NetworkBehaviour
         if (rb == null)
             rb = GetComponent<Rigidbody2D>();
 
-        // Auto-find visuals if not assigned
         if (wizardVisual == null)
             wizardVisual = transform.Find("WizardVisual");
         
         if (slimeVisual == null)
             slimeVisual = transform.Find("SlimeVisual");
 
-        // Store base transforms
+        // Store base transforms (these are the ORIGINAL prefab scales)
         if (wizardVisual != null)
         {
             wizardBasePosition = wizardVisual.localPosition;
@@ -131,7 +128,6 @@ public class ProceduralCharacterAnimator : NetworkBehaviour
     {
         isSlimeForm.OnValueChanged += OnNetworkFormChanged;
         
-        // Initial state
         currentFormIsSlime = isSlimeForm.Value;
         UpdateVisualActiveState();
         
@@ -148,7 +144,6 @@ public class ProceduralCharacterAnimator : NetworkBehaviour
         currentFormIsSlime = newValue;
         UpdateVisualActiveState();
         
-        // Reset animation state on form change
         bouncePhase = 0f;
         currentTiltAngle = 0f;
         currentMovementBlend = 0f;
@@ -158,7 +153,6 @@ public class ProceduralCharacterAnimator : NetworkBehaviour
 
     private void Update()
     {
-        // Only animate if visible
         if (!masterVisibility) return;
         
         float time = Time.time + timeOffset;
@@ -184,11 +178,30 @@ public class ProceduralCharacterAnimator : NetworkBehaviour
 
     #endregion
 
-    #region Visual State Control (Called by Health and SlimeController)
+    #region External Scale Control (Called by SizeChangeHandler)
 
     /// <summary>
-    /// Called by Health.cs to show/hide the entire player (death/respawn)
+    /// Set the external scale multiplier from SizeChangeHandler.
+    /// This multiplier is applied ON TOP of animation scales.
     /// </summary>
+    public void SetExternalScaleMultiplier(float multiplier)
+    {
+        externalScaleMultiplier = multiplier;
+        Debug.Log($"[ProceduralAnimator] External scale multiplier set to: {multiplier}x");
+    }
+
+    /// <summary>
+    /// Get current external scale multiplier
+    /// </summary>
+    public float GetExternalScaleMultiplier()
+    {
+        return externalScaleMultiplier;
+    }
+
+    #endregion
+
+    #region Visual State Control
+
     public void SetMasterVisibility(bool visible)
     {
         masterVisibility = visible;
@@ -197,14 +210,10 @@ public class ProceduralCharacterAnimator : NetworkBehaviour
         Debug.Log($"[ProceduralAnimator] Master visibility set to {visible}");
     }
 
-    /// <summary>
-    /// Called by SlimeController to change form
-    /// </summary>
     public void SetFormState(bool isSlime)
     {
         currentFormIsSlime = isSlime;
         
-        // Also sync the network variable if we're the server
         if (IsServer && isSlimeForm.Value != isSlime)
         {
             isSlimeForm.Value = isSlime;
@@ -215,9 +224,6 @@ public class ProceduralCharacterAnimator : NetworkBehaviour
         Debug.Log($"[ProceduralAnimator] Form state set to {(isSlime ? "Slime" : "Wizard")}");
     }
 
-    /// <summary>
-    /// Server-only: Set the character's form via network variable
-    /// </summary>
     public void SetSlimeForm(bool slime)
     {
         if (!IsServer)
@@ -228,9 +234,6 @@ public class ProceduralCharacterAnimator : NetworkBehaviour
         isSlimeForm.Value = slime;
     }
 
-    /// <summary>
-    /// Server-only: Toggle between forms
-    /// </summary>
     public void ToggleForm()
     {
         if (!IsServer)
@@ -241,9 +244,6 @@ public class ProceduralCharacterAnimator : NetworkBehaviour
         isSlimeForm.Value = !isSlimeForm.Value;
     }
 
-    /// <summary>
-    /// The core method that applies the current visual state
-    /// </summary>
     private void UpdateVisualActiveState()
     {
         if (wizardVisual != null)
@@ -251,11 +251,10 @@ public class ProceduralCharacterAnimator : NetworkBehaviour
             bool shouldShowWizard = masterVisibility && !currentFormIsSlime;
             wizardVisual.gameObject.SetActive(shouldShowWizard);
             
-            // Reset transform when showing
             if (shouldShowWizard)
             {
                 wizardVisual.localPosition = wizardBasePosition;
-                wizardVisual.localScale = wizardBaseScale;
+                wizardVisual.localScale = wizardBaseScale * externalScaleMultiplier;
                 wizardVisual.localRotation = Quaternion.identity;
             }
         }
@@ -265,21 +264,15 @@ public class ProceduralCharacterAnimator : NetworkBehaviour
             bool shouldShowSlime = masterVisibility && currentFormIsSlime;
             slimeVisual.gameObject.SetActive(shouldShowSlime);
             
-            // Reset transform when showing
             if (shouldShowSlime)
             {
                 slimeVisual.localPosition = slimeBasePosition;
-                slimeVisual.localScale = slimeBaseScale;
+                slimeVisual.localScale = slimeBaseScale * externalScaleMultiplier;
                 slimeVisual.localRotation = Quaternion.identity;
             }
         }
-        
-        Debug.Log($"[ProceduralAnimator] UpdateVisualActiveState: master={masterVisibility}, form={(currentFormIsSlime ? "Slime" : "Wizard")}");
     }
 
-    /// <summary>
-    /// Force refresh the visual state (useful after complex state changes)
-    /// </summary>
     public void ForceRefreshVisuals()
     {
         UpdateVisualActiveState();
@@ -313,7 +306,9 @@ public class ProceduralCharacterAnimator : NetworkBehaviour
         if (wizardVisual == null || !wizardVisual.gameObject.activeSelf) return;
 
         Vector3 targetPosition = wizardBasePosition;
-        Vector3 targetScale = wizardBaseScale;
+        
+        // Animation scale is relative to 1.0 (no change)
+        Vector3 animationScale = Vector3.one;
         float targetRotation = 0f;
 
         float idleWeight = 1f - currentMovementBlend;
@@ -348,9 +343,13 @@ public class ProceduralCharacterAnimator : NetworkBehaviour
             targetPosition.x += smoothedVelocity.normalized.x * wizardForwardLean * moveWeight;
         }
 
-        // Apply transforms
+        // === APPLY FINAL SCALE: Base × External × Animation ===
+        Vector3 finalTargetScale = wizardBaseScale * externalScaleMultiplier;
+        // Note: animationScale is Vector3.one for wizard (no squash/stretch), so we just use finalTargetScale
+
+        // Apply transforms with smoothing
         wizardVisual.localPosition = Vector3.Lerp(wizardVisual.localPosition, targetPosition, positionSmoothing * deltaTime);
-        wizardVisual.localScale = Vector3.Lerp(wizardVisual.localScale, targetScale, scaleSmoothing * deltaTime);
+        wizardVisual.localScale = Vector3.Lerp(wizardVisual.localScale, finalTargetScale, scaleSmoothing * deltaTime);
         
         Quaternion targetRot = Quaternion.Euler(0f, 0f, targetRotation);
         wizardVisual.localRotation = Quaternion.Slerp(wizardVisual.localRotation, targetRot, positionSmoothing * deltaTime);
@@ -365,7 +364,10 @@ public class ProceduralCharacterAnimator : NetworkBehaviour
         if (slimeVisual == null || !slimeVisual.gameObject.activeSelf) return;
 
         Vector3 targetPosition = slimeBasePosition;
-        Vector3 targetScale = slimeBaseScale;
+        
+        // Animation scale modifiers (relative to 1.0)
+        float animScaleX = 1f;
+        float animScaleY = 1f;
         float targetRotation = 0f;
 
         float idleWeight = 1f - currentMovementBlend;
@@ -377,16 +379,16 @@ public class ProceduralCharacterAnimator : NetworkBehaviour
             float breathPhase = Mathf.Sin(time * slimeBreathFrequency * Mathf.PI * 2f);
             float wobblePhase = Mathf.Sin(time * slimeWobbleFrequency * Mathf.PI * 2f);
             
-            float scaleY = 1f + breathPhase * slimeBreathAmplitude + wobblePhase * slimeWobbleStrength;
-            float scaleX = 1f - breathPhase * slimeBreathAmplitude * 0.5f - wobblePhase * slimeWobbleStrength * 0.3f;
+            float idleScaleY = 1f + breathPhase * slimeBreathAmplitude + wobblePhase * slimeWobbleStrength;
+            float idleScaleX = 1f - breathPhase * slimeBreathAmplitude * 0.5f - wobblePhase * slimeWobbleStrength * 0.3f;
 
-            targetScale.x = slimeBaseScale.x * Mathf.Lerp(1f, scaleX, idleWeight);
-            targetScale.y = slimeBaseScale.y * Mathf.Lerp(1f, scaleY, idleWeight);
+            animScaleX = Mathf.Lerp(1f, idleScaleX, idleWeight);
+            animScaleY = Mathf.Lerp(1f, idleScaleY, idleWeight);
 
             float idleBob = Mathf.Sin(time * slimeBreathFrequency * 1.5f * Mathf.PI * 2f) * slimeIdleBobAmplitude;
             targetPosition.y += idleBob * idleWeight;
 
-            float heightDiff = (scaleY - 1f) * slimeBaseScale.y * 0.5f;
+            float heightDiff = (idleScaleY - 1f) * slimeBaseScale.y * externalScaleMultiplier * 0.5f;
             targetPosition.y += heightDiff * idleWeight;
         }
 
@@ -415,14 +417,14 @@ public class ProceduralCharacterAnimator : NetworkBehaviour
             float moveScaleY = 1f + squashStretch;
             float moveScaleX = 1f - squashStretch * 0.5f;
 
-            targetScale.x = slimeBaseScale.x * Mathf.Lerp(targetScale.x / slimeBaseScale.x, moveScaleX, moveWeight);
-            targetScale.y = slimeBaseScale.y * Mathf.Lerp(targetScale.y / slimeBaseScale.y, moveScaleY, moveWeight);
+            animScaleX = Mathf.Lerp(animScaleX, moveScaleX, moveWeight);
+            animScaleY = Mathf.Lerp(animScaleY, moveScaleY, moveWeight);
 
             float hopHeight = (1f - Mathf.Cos(bouncePhase)) * 0.5f * slimeHopHeight;
             hopHeight *= currentSpeed / 3f;
             targetPosition.y += hopHeight * moveWeight;
 
-            float moveHeightDiff = (moveScaleY - 1f) * slimeBaseScale.y * 0.5f;
+            float moveHeightDiff = (moveScaleY - 1f) * slimeBaseScale.y * externalScaleMultiplier * 0.5f;
             targetPosition.y += moveHeightDiff * moveWeight;
 
             float moveTilt = -smoothedVelocity.x * (slimeMoveTilt / 5f);
@@ -432,9 +434,16 @@ public class ProceduralCharacterAnimator : NetworkBehaviour
             DetectBounceImpact();
         }
 
-        // Apply transforms
+        // === APPLY FINAL SCALE: Base × External × Animation ===
+        Vector3 finalTargetScale = new Vector3(
+            slimeBaseScale.x * externalScaleMultiplier * animScaleX,
+            slimeBaseScale.y * externalScaleMultiplier * animScaleY,
+            slimeBaseScale.z * externalScaleMultiplier
+        );
+
+        // Apply transforms with smoothing
         slimeVisual.localPosition = Vector3.Lerp(slimeVisual.localPosition, targetPosition, positionSmoothing * deltaTime);
-        slimeVisual.localScale = Vector3.Lerp(slimeVisual.localScale, targetScale, scaleSmoothing * deltaTime);
+        slimeVisual.localScale = Vector3.Lerp(slimeVisual.localScale, finalTargetScale, scaleSmoothing * deltaTime);
         
         Quaternion targetRot = Quaternion.Euler(0f, 0f, targetRotation);
         slimeVisual.localRotation = Quaternion.Slerp(slimeVisual.localRotation, targetRot, positionSmoothing * deltaTime);
@@ -483,7 +492,7 @@ public class ProceduralCharacterAnimator : NetworkBehaviour
             float t = elapsed / squashDuration;
             float squash = Mathf.Sin(t * Mathf.PI) * 0.2f;
             
-            Vector3 hitScale = baseScale;
+            Vector3 hitScale = baseScale * externalScaleMultiplier;
             hitScale.x *= 1f + squash;
             hitScale.y *= 1f - squash;
             visual.localScale = hitScale;

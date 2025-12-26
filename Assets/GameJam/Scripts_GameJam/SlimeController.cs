@@ -2,15 +2,16 @@ using Unity.Netcode;
 using UnityEngine;
 
 /// <summary>
-/// SlimeController handles the Slime form's unique mechanics:
+/// SlimeController - Fixed Version
+/// 
+/// Handles the Slime form's unique mechanics:
 /// - When slime takes damage: gets SMALLER, moves FASTER, deals LESS damage
-/// - Directly scales the SlimeVisual child object
-/// - Directly scales the BoxCollider2D on the parent
+/// - Works with SizeChangeHandler for LuckyBox scale events
 /// 
 /// STRUCTURE EXPECTED:
-/// Player (has BoxCollider2D, this script)
-///   └── SlimeVisual (child object with SpriteRenderer)
-///   └── WizardVisual (child object with SpriteRenderer)
+/// Player (has Collider2D, this script)
+///   ├── WizardVisual (child with SpriteRenderer)
+///   └── SlimeVisual (child with SpriteRenderer)
 /// 
 /// Attach to Player prefab.
 /// </summary>
@@ -19,8 +20,8 @@ public class SlimeController : NetworkBehaviour
     #region Network Variables
     
     /// <summary>
-    /// Current scale multiplier (1.0 = full size, 0.3 = minimum)
-    /// Synced across network so all clients see the same size
+    /// Current adaptive scale multiplier (1.0 = full size, 0.3 = minimum)
+    /// This is the DAMAGE-BASED scaling, separate from LuckyBox scaling
     /// </summary>
     public NetworkVariable<float> currentScale = new NetworkVariable<float>(
         1.0f,
@@ -41,14 +42,11 @@ public class SlimeController : NetworkBehaviour
 
     #region Inspector Fields
 
-    [Header("=== REFERENCES (Assign in Inspector) ===")]
-    [Tooltip("The SlimeVisual child object that will be scaled")]
+    [Header("=== REFERENCES ===")]
     [SerializeField] private Transform slimeVisual;
-    
-    [Tooltip("The BoxCollider2D on the player (usually on parent)")]
-    [SerializeField] private BoxCollider2D boxCollider;
+    [SerializeField] private Transform wizardVisual;
 
-    [Header("=== SCALE SETTINGS ===")]
+    [Header("=== ADAPTIVE SCALE SETTINGS ===")]
     [Tooltip("Minimum scale when fully damaged (0.3 = 30% size)")]
     [SerializeField] private float minScale = 0.3f;
     
@@ -57,25 +55,14 @@ public class SlimeController : NetworkBehaviour
     
     [Tooltip("How much scale is lost per point of damage")]
     [SerializeField] private float scalePerDamage = 0.007f;
-    
-    [Tooltip("How fast the visual scales (for smooth transition)")]
-    [SerializeField] private float scaleSpeed = 10f;
 
     [Header("=== SPEED SETTINGS (Smaller = Faster) ===")]
-    [Tooltip("Speed multiplier at minimum scale (smallest slime)")]
     [SerializeField] private float speedAtMinScale = 2.0f;
-    
-    [Tooltip("Speed multiplier at maximum scale (largest slime)")]
     [SerializeField] private float speedAtMaxScale = 1.0f;
 
     [Header("=== DAMAGE SETTINGS (Smaller = Weaker) ===")]
-    [Tooltip("Damage multiplier at minimum scale")]
     [SerializeField] private float damageAtMinScale = 0.4f;
-    
-    [Tooltip("Damage multiplier at maximum scale")]
     [SerializeField] private float damageAtMaxScale = 1.0f;
-    
-    [Tooltip("Base gloop damage before scaling")]
     [SerializeField] private int gloopBaseDamage = 25;
 
     [Header("=== GLOOP PROJECTILE ===")]
@@ -90,16 +77,11 @@ public class SlimeController : NetworkBehaviour
 
     #region Private Fields
 
-    // Store original values to scale from
-    private Vector3 originalVisualScale;
-    private Vector2 originalColliderSize;
-    private Vector2 originalColliderOffset;
-    
-    // Current visual scale (for smooth lerping)
-    private float displayScale = 1f;
-    
+    private Vector3 slimeOriginalScale;
+    private Vector3 wizardOriginalScale;
     private AudioSource audioSource;
     private ProceduralCharacterAnimator animator;
+    private SizeChangeHandler sizeChangeHandler;
 
     #endregion
 
@@ -107,14 +89,15 @@ public class SlimeController : NetworkBehaviour
 
     private void Awake()
     {
-        // Auto-find references if not assigned
+        // Auto-find references
         if (slimeVisual == null)
             slimeVisual = transform.Find("SlimeVisual");
         
-        if (boxCollider == null)
-            boxCollider = GetComponent<BoxCollider2D>();
+        if (wizardVisual == null)
+            wizardVisual = transform.Find("WizardVisual");
         
         animator = GetComponent<ProceduralCharacterAnimator>();
+        sizeChangeHandler = GetComponent<SizeChangeHandler>();
         
         audioSource = GetComponent<AudioSource>();
         if (audioSource == null)
@@ -122,29 +105,19 @@ public class SlimeController : NetworkBehaviour
         
         // Store original scales
         if (slimeVisual != null)
-            originalVisualScale = slimeVisual.localScale;
+            slimeOriginalScale = slimeVisual.localScale;
         
-        if (boxCollider != null)
-        {
-            originalColliderSize = boxCollider.size;
-            originalColliderOffset = boxCollider.offset;
-        }
+        if (wizardVisual != null)
+            wizardOriginalScale = wizardVisual.localScale;
     }
 
     public override void OnNetworkSpawn()
     {
-        // Subscribe to network variable changes
         currentScale.OnValueChanged += OnScaleChanged;
         isSlimeForm.OnValueChanged += OnFormChanged;
         
-        // Initialize display scale
-        displayScale = currentScale.Value;
-        
         // Apply initial state
-        if (isSlimeForm.Value)
-        {
-            ApplyScale(currentScale.Value);
-        }
+        ApplyFormState(isSlimeForm.Value);
         
         Debug.Log($"[SlimeController] Spawned. IsSlime: {isSlimeForm.Value}, Scale: {currentScale.Value:F2}");
     }
@@ -155,72 +128,76 @@ public class SlimeController : NetworkBehaviour
         isSlimeForm.OnValueChanged -= OnFormChanged;
     }
 
-    private void Update()
-    {
-        // Smoothly interpolate visual scale
-        if (isSlimeForm.Value && slimeVisual != null)
-        {
-            displayScale = Mathf.Lerp(displayScale, currentScale.Value, scaleSpeed * Time.deltaTime);
-            ApplyScale(displayScale);
-        }
-    }
-
     #endregion
 
-    #region Scale Application (THE KEY PART)
+    #region Network Callbacks
 
-    /// <summary>
-    /// Directly applies scale to the visual child and collider
-    /// </summary>
-    private void ApplyScale(float scale)
-    {
-        // 1. Scale the SlimeVisual child object
-        if (slimeVisual != null && slimeVisual.gameObject.activeSelf)
-        {
-            slimeVisual.localScale = originalVisualScale * scale;
-        }
-        
-        // 2. Scale the BoxCollider2D
-        if (boxCollider != null && isSlimeForm.Value)
-        {
-            boxCollider.size = originalColliderSize * scale;
-            // Adjust offset to keep collider grounded (optional)
-            // boxCollider.offset = originalColliderOffset * scale;
-        }
-    }
-
-    /// <summary>
-    /// Called when the network scale value changes
-    /// </summary>
     private void OnScaleChanged(float oldScale, float newScale)
     {
-        Debug.Log($"[SlimeController] Scale changed: {oldScale:F2} -> {newScale:F2} | Speed: {GetSpeedMultiplier():F2}x | Damage: {GetDamageMultiplier():F2}x");
+        Debug.Log($"[SlimeController] Adaptive scale changed: {oldScale:F2} -> {newScale:F2}");
+        
+        // Notify SizeChangeHandler to refresh (it handles the actual scaling)
+        if (sizeChangeHandler != null)
+        {
+            sizeChangeHandler.RefreshScale();
+        }
         
         // Update leaderboard
         UpdateLeaderboardState();
     }
 
+    private void OnFormChanged(bool oldValue, bool newValue)
+    {
+        Debug.Log($"[SlimeController] Form changed: {(oldValue ? "Slime" : "Wizard")} -> {(newValue ? "Slime" : "Wizard")}");
+        
+        ApplyFormState(newValue);
+        
+        // Notify SizeChangeHandler to refresh scaling for new form
+        if (sizeChangeHandler != null)
+        {
+            sizeChangeHandler.RefreshScale();
+        }
+        
+        UpdateLeaderboardState();
+    }
+
+    private void ApplyFormState(bool isSlime)
+    {
+        // Update animator
+        if (animator != null)
+        {
+            animator.SetFormState(isSlime);
+        }
+        else
+        {
+            // Fallback: directly control visuals
+            if (wizardVisual != null)
+                wizardVisual.gameObject.SetActive(!isSlime);
+            
+            if (slimeVisual != null)
+                slimeVisual.gameObject.SetActive(isSlime);
+        }
+    }
+
     #endregion
 
-    #region Damage Handling (Called by Health.cs)
+    #region Damage Handling
 
     /// <summary>
     /// Called by Health.cs when slime takes damage.
-    /// Reduces scale, making slime smaller but faster.
+    /// Reduces adaptive scale, making slime smaller but faster.
     /// </summary>
     public void OnDamageTaken(int damageAmount)
     {
         if (!IsServer) return;
-        if (!isSlimeForm.Value) return; // Only affects slime form
+        if (!isSlimeForm.Value) return;
         
-        // Calculate new scale
         float scaleReduction = damageAmount * scalePerDamage;
         float newScale = Mathf.Max(minScale, currentScale.Value - scaleReduction);
         
-        // Update network variable (this triggers OnScaleChanged on all clients)
         currentScale.Value = newScale;
         
-        Debug.Log($"[SlimeController] Took {damageAmount} damage. New scale: {newScale:F2}");
+        Debug.Log($"[SlimeController] Took {damageAmount} damage. Adaptive scale: {newScale:F2}");
     }
 
     /// <summary>
@@ -233,38 +210,29 @@ public class SlimeController : NetworkBehaviour
 
     #endregion
 
-    #region Speed Multiplier (Smaller = Faster)
+    #region Speed & Damage Multipliers
 
     /// <summary>
-    /// Returns speed multiplier based on current scale.
-    /// Called by PlayerController for movement speed.
+    /// Returns speed multiplier based on current adaptive scale.
+    /// Smaller = Faster
     /// </summary>
     public float GetSpeedMultiplier()
     {
         if (!isSlimeForm.Value) return 1f;
         
-        // Normalize: 0 at minScale, 1 at maxScale
         float t = (currentScale.Value - minScale) / (maxScale - minScale);
-        
-        // Interpolate: small = fast, big = normal
         return Mathf.Lerp(speedAtMinScale, speedAtMaxScale, t);
     }
 
-    #endregion
-
-    #region Damage Multiplier (Smaller = Weaker)
-
     /// <summary>
-    /// Returns damage multiplier based on current scale.
+    /// Returns damage multiplier based on current adaptive scale.
+    /// Smaller = Weaker
     /// </summary>
     public float GetDamageMultiplier()
     {
         if (!isSlimeForm.Value) return 1f;
         
-        // Normalize: 0 at minScale, 1 at maxScale
         float t = (currentScale.Value - minScale) / (maxScale - minScale);
-        
-        // Interpolate: small = weak, big = strong
         return Mathf.Lerp(damageAtMinScale, damageAtMaxScale, t);
     }
 
@@ -280,9 +248,6 @@ public class SlimeController : NetworkBehaviour
 
     #region Projectile Settings
 
-    /// <summary>
-    /// Get projectile settings for shooting
-    /// </summary>
     public (GameObject prefab, float speed, int damage) GetProjectileSettings(GameObject defaultFireball, float defaultSpeed)
     {
         if (isSlimeForm.Value && gloopPrefab != null)
@@ -292,9 +257,6 @@ public class SlimeController : NetworkBehaviour
         return (defaultFireball, defaultSpeed, 25);
     }
 
-    /// <summary>
-    /// Check if should use gloop projectile
-    /// </summary>
     public bool ShouldUseGloop()
     {
         return isSlimeForm.Value && gloopPrefab != null;
@@ -312,8 +274,7 @@ public class SlimeController : NetworkBehaviour
         if (!IsServer) return;
         
         isSlimeForm.Value = true;
-        currentScale.Value = maxScale; // Reset scale
-        displayScale = maxScale;
+        currentScale.Value = maxScale;
         
         PlayTransformEffectClientRpc();
         Debug.Log($"[SlimeController] Player {OwnerClientId} transformed to SLIME");
@@ -326,16 +287,8 @@ public class SlimeController : NetworkBehaviour
     {
         if (!IsServer) return;
         
-        // Reset collider to original size before switching
-        if (boxCollider != null)
-        {
-            boxCollider.size = originalColliderSize;
-            boxCollider.offset = originalColliderOffset;
-        }
-        
         isSlimeForm.Value = false;
         currentScale.Value = maxScale;
-        displayScale = maxScale;
         
         PlayTransformEffectClientRpc();
         Debug.Log($"[SlimeController] Player {OwnerClientId} transformed to WIZARD");
@@ -352,44 +305,6 @@ public class SlimeController : NetworkBehaviour
             TransformToWizard();
         else
             TransformToSlime();
-    }
-
-    private void OnFormChanged(bool oldValue, bool newValue)
-    {
-        Debug.Log($"[SlimeController] Form changed: {(oldValue ? "Slime" : "Wizard")} -> {(newValue ? "Slime" : "Wizard")}");
-        
-        // Reset display scale when changing forms
-        displayScale = currentScale.Value;
-        
-        // Sync with animator for visual switching
-        if (animator != null)
-        {
-            animator.SetFormState(newValue);
-        }
-        else
-        {
-            // Fallback: directly control visuals
-            Transform wizardVis = transform.Find("WizardVisual");
-            if (wizardVis != null) wizardVis.gameObject.SetActive(!newValue);
-            if (slimeVisual != null) slimeVisual.gameObject.SetActive(newValue);
-        }
-        
-        // Apply or reset collider
-        if (newValue)
-        {
-            ApplyScale(currentScale.Value);
-        }
-        else
-        {
-            // Reset collider when becoming wizard
-            if (boxCollider != null)
-            {
-                boxCollider.size = originalColliderSize;
-                boxCollider.offset = originalColliderOffset;
-            }
-        }
-        
-        UpdateLeaderboardState();
     }
 
     [ClientRpc]
@@ -414,14 +329,6 @@ public class SlimeController : NetworkBehaviour
         if (!IsServer) return;
         
         currentScale.Value = maxScale;
-        displayScale = maxScale;
-        
-        // Reset collider
-        if (boxCollider != null)
-        {
-            boxCollider.size = originalColliderSize;
-            boxCollider.offset = originalColliderOffset;
-        }
         
         Debug.Log($"[SlimeController] State reset for player {OwnerClientId}");
     }
@@ -460,7 +367,7 @@ public class SlimeController : NetworkBehaviour
 
     #endregion
 
-    #region Debug Gizmos
+    #region Debug
 
 #if UNITY_EDITOR
     private void OnDrawGizmosSelected()
@@ -468,12 +375,11 @@ public class SlimeController : NetworkBehaviour
         if (!Application.isPlaying) return;
         if (!isSlimeForm.Value) return;
 
-        // Draw scale info
         UnityEditor.Handles.Label(
             transform.position + Vector3.up * 2f,
-            $"Scale: {currentScale.Value:F2}\n" +
-            $"Speed: {GetSpeedMultiplier():F2}x\n" +
-            $"Damage: {GetDamageMultiplier():F2}x"
+            $"Adaptive Scale: {currentScale.Value:F2}\n" +
+            $"Speed Mult: {GetSpeedMultiplier():F2}x\n" +
+            $"Damage Mult: {GetDamageMultiplier():F2}x"
         );
     }
 #endif
