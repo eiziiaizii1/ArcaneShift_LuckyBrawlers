@@ -87,6 +87,7 @@ public class LuckyBox : NetworkBehaviour
     [Header("Audio/VFX")]
     [SerializeField] private GameObject eventActivationVFX;
     [SerializeField] private AudioClip eventStartSound;
+    [SerializeField] private AudioClip eventTriggerSound;
     [SerializeField] private AudioClip eventEndSound;
     [SerializeField] private AudioClip countdownTickSound;
 
@@ -418,6 +419,11 @@ public class LuckyBox : NetworkBehaviour
         if (eventStartSound != null && audioSource != null)
         {
             audioSource.PlayOneShot(eventStartSound);
+        }
+
+        if (eventTriggerSound != null && audioSource != null)
+        {
+            audioSource.PlayOneShot(eventTriggerSound);
         }
     }
 

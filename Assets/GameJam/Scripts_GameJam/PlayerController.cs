@@ -46,6 +46,12 @@ public class PlayerController : NetworkBehaviour
     [SerializeField] private Color wizardArrowColor = Color.yellow;
     [SerializeField] private Color slimeArrowColor = Color.green;
 
+    [Header("Audio")]
+    [SerializeField] private AudioClip fireballWhooshSound;
+    [SerializeField] private AudioClip gloopWhooshSound;
+    [Range(0f, 1f)]
+    [SerializeField] private float fireballWhooshVolume = 1f;
+
     #endregion
 
     #region Private Fields
@@ -60,6 +66,7 @@ public class PlayerController : NetworkBehaviour
     
     private SlimeController slimeController;
     private ProceduralCharacterAnimator animator;
+    private AudioSource audioSource;
 
     #endregion
 
@@ -72,6 +79,8 @@ public class PlayerController : NetworkBehaviour
         nameCanvas = GetComponentInChildren<Canvas>();
         slimeController = GetComponent<SlimeController>();
         animator = GetComponent<ProceduralCharacterAnimator>();
+        audioSource = GetComponent<AudioSource>();
+        if (audioSource == null) audioSource = gameObject.AddComponent<AudioSource>();
     }
 
     public override void OnNetworkSpawn()
@@ -351,9 +360,21 @@ public class PlayerController : NetworkBehaviour
         }
 
         projectile.GetComponent<NetworkObject>().SpawnWithOwnership(shooterId);
+
+        bool isGloop = prefabToUse != fireballPrefab;
+        PlayAttackWhooshClientRpc(isGloop);
     }
 
     #endregion
+
+    [ClientRpc]
+    private void PlayAttackWhooshClientRpc(bool isGloop)
+    {
+        if (audioSource == null) return;
+        AudioClip clip = isGloop ? gloopWhooshSound : fireballWhooshSound;
+        if (clip == null) return;
+        audioSource.PlayOneShot(clip, fireballWhooshVolume);
+    }
 
     #region Visibility & Spawn
 

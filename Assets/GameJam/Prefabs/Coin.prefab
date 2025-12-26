@@ -165,3 +165,5 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   ShowTopMostFoldoutHeaderGroup: 1
   scoreValue: 10
+  pickupSound: {fileID: 8300000, guid: a4a772c3284a23f4ca9614f6f4dfbc4b, type: 3}
+  pickupVolume: 1

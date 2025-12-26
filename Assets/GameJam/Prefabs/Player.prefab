@@ -742,6 +742,9 @@ MonoBehaviour:
   arrowScale: 0.69
   wizardArrowColor: {r: 0.15359731, g: 0.509434, b: 0, a: 1}
   slimeArrowColor: {r: 0, g: 1, b: 0.63603806, a: 1}
+  fireballWhooshSound: {fileID: 8300000, guid: ddbcf61c4988ff243af7a80c14028a88, type: 3}
+  gloopWhooshSound: {fileID: 8300000, guid: ed7bb03d30a7c814cbca52a64e17b214, type: 3}
+  fireballWhooshVolume: 1
 --- !u!114 &8497800046484309242
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -960,6 +963,8 @@ MonoBehaviour:
   normalHealthColor: {r: 0, g: 1, b: 0, a: 1}
   lowHealthColor: {r: 0, g: 0.42138356, b: 0, a: 1}
   lowHealthThreshold: 0.3
+  deathSound: {fileID: 8300000, guid: edf77a3065c85144eb69d2598a7320c3, type: 3}
+  deathSoundVolume: 1
 --- !u!114 &-1483737551772118359
 MonoBehaviour:
   m_ObjectHideFlags: 0
